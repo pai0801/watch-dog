@@ -1,0 +1,14 @@
+# .portability.toml — rules/09-PORTABILITY 採用
+# watch-dog · Cloudflare Workers(哨兵;dev/deploy/cf-typegen)
+[machine_local]
+files = [".env"]
+[secrets]
+worker = []
+python_env = ["CLOUDFLARE_API_TOKEN"]
+[bootstrap]
+steps = ["npm install", "npm run cf-typegen"]
+[verify]
+fresh_clone_smoke = "npm run dev → curl /health"
+[vendor_lock]
+level = "low"
+touchpoints = ["Cloudflare Workers"]
