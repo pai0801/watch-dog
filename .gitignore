@@ -35,3 +35,23 @@ lerna-debug.log*
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# ===== added by gitignore optimization (2026-07-28) =====
+.env.local
+*.pem
+*.key
+*credentials*
+Thumbs.db
+.omc/
+build/
+coverage/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+# ===== end =====
+!secrets-archive/env.7z
