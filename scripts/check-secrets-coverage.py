@@ -26,7 +26,11 @@ READ_PATTERN = re.compile(
 SECRETISH_SUFFIX = re.compile(
     r"_(API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|M2M_ID|M2M_SECRET|APP_ID|APP_SECRET|ORG_ID)$"
 )
-ENV_FILES = (".env", ".dev.vars", ".env.local", ".env.*", "wrangler*.toml", "wrangler*.jsonc")
+# env 名稱來源也接受 *.example（鍵名清單檔、無值）→ fresh checkout / CI 沒有 gitignored 的
+# .env/.dev.vars 時，forward parity 仍可驗（example 檔committed，攜帶鍵名契約）。
+# 故這裡不沿用 EXCLUDE_SUFFIX（含 .example）；只排除 .bak/.test/.fixture/.sample 變體。
+ENV_FILES = (".env", ".dev.vars", ".dev.vars.example", ".env.local", ".env.*", "wrangler*.toml", "wrangler*.jsonc")
+ENV_EXCLUDE_SUFFIX = (".bak", ".test", ".fixture", ".sample")
 EXCLUDE_DIRS = ("node_modules", ".venv", ".git", "dist", "build", ".wrangler", ".cloudflare",
                 "tests", "test", "__tests__", "scripts")  # scripts=setup/seed/demo/bootstrap(非 runtime)
 EXCLUDE_SUFFIX = (".example", ".bak", ".test", ".fixture", ".sample", ".md", ".d.ts")
@@ -62,7 +66,7 @@ def _env_var_names(repo: str) -> set[str]:
     vars_: set[str] = set()
     for pat in ENV_FILES:
         for hit in glob.glob(os.path.join(repo, pat)):
-            if not os.path.isfile(hit) or _is_excluded(os.path.basename(hit)):
+            if not os.path.isfile(hit) or os.path.basename(hit).lower().endswith(ENV_EXCLUDE_SUFFIX):
                 continue
             try:
                 for line in open(hit, encoding="utf-8"):
@@ -115,6 +119,7 @@ def selftest() -> int:
         ("max-tokens-not-secretish", {"src/a.ts": "env.MAX_TOKENS"}, {".env": ""}, [], []),
         ("python-getenv", {"app/x.py": "v = os.getenv('DB_PASSWORD')"}, {".env": "DB_PASSWORD=p"}, [], []),
         ("scripts-excluded", {"scripts/seed.ts": "env.SEED_API_KEY"}, {".env": ""}, [], []),
+        ("example-env-counts", {"src/a.ts": "env.EX_TOKEN"}, {".dev.vars.example": "EX_TOKEN=change-me"}, [], []),
     ]
     fails = 0
     for name, code, env, opt, exp_fwd in cases:

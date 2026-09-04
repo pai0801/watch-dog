@@ -5,6 +5,13 @@
 
 ## Entries
 
+### [2026-09-04] deslop 修復輪：§M fresh-checkout 必紅（CI 接線）＋ coverage report 兩處幻覺＋ repo URL
+**目標**：清除 deslop 審查（commit 3b87c86）必修三項——push 前讓 CI 首跑可綠、回報文檔不攜帶幻覺進 rules map、repo 遠端 URL 兩邊一致。
+**原因**：① §M forward 要求 code 讀的 SECRETISH 出現在 env 檔，但 `.env`/`.dev.vars` 為 gitignored——fresh checkout（CI runner，無值檔）必 exit 1，本地綠只是機器相依僥倖；② `docs/guard-coverage-report.md` D5 row 宣稱「runtime.ts 存在」（檔案不存在，guard 實為全禁＋ignore 未存在路徑）與「detect-secrets baseline 已接 pre-commit」（`.secrets.baseline` 無任何機制跑它）；③ CLAUDE.md/AGENTS.md 寫 `paipeter0801/watch-dog`，實際 `git remote` = `pai0801/watch-dog`。
+**預期結果**：① §M env 名稱來源納入 `.dev.vars.example`（committed 鍵名契約檔）——fresh clone 無值檔時 parity 仍可驗；② D5 row 改「runtime.ts 尚未建立＝實質全禁」、detect-secrets 改「一次性掃描證據，接線待辦 TODO-REVIEW #13」；③ URL 改 `pai0801`。同輪零風險順修：bindings.ts 註解精確化（throw 只在 fetch 入口；cron 刻意繞過——原註解宣稱 whole worker 含 cron 皆死，不實）、workflow step 名對齊實際（make ci 無 build）、§B fixture 死元素（slice(0,3) 永不執行）改為誠實限制註解、pre-commit-check.sh staged 掃描加 `--diff-filter=ACMR`（合法刪檔不誤報）＋ `/tmp` 可預測路徑改 `mktemp`。deslop guard 強化向量（§B 四逃逸向量/§A 無引號鍵/§G 反向/雙引號 import/多行 JSONC/AGENTS.md 漂移）記入 TODO-REVIEW #10–#16 留下輪。
+**範圍**：`scripts/check-secrets-coverage.py`（ENV_FILES＋專屬 ENV_EXCLUDE_SUFFIX＋selftest 案例）、`CLAUDE.md`＋`AGENTS.md`（URL）、`docs/guard-coverage-report.md`（D5 row＋接線段）、`src/lib/bindings.ts`（僅註解）、`.github/workflows/main.yml`（step 名）、`tests/guards/portability.test.ts`（僅 §B fixture/註解）、`secrets-archive/pre-commit-check.sh`、`TODO-REVIEW.md`（+7 行）。無 secret 值變動、無 schema 變動。
+**驗證**：§M `--selftest` 8/8（新增 example-env-counts 案例）✓；fresh-clone 模擬 D38——舊 checkout 舊腳本 exit 1 重現 deslop 發現 → 同 clone 修復腳本 exit 0 ✓；§L 於 clone exit 0 ✓；`make ci` 全綠 ✓（tsc＋ESLint＋app/guards 雙 pool）。
+
 ### [2026-09-04] 安全：現役 CLOUDFLARE_API_TOKEN 明文洩漏（docs/plans 舊計畫文件）redact + 強制輪替
 **目標**：消除 committed 明文現役 token（`docs/plans/2026-02-02-watch-dog-sentinel.md:33`）。
 **原因**：2026-02-02 的計畫文件把 `export CLOUDFLARE_API_TOKEN="<值>"` 逐字寫進範例指令塊並 commit（10327ec）——值與 `.env` 現役 token 相同（byte 比對確認 = LIVE 洩漏），且 repo 有 GitHub remote。由 2026-09-04 框架採用輪的 `.secrets.baseline`（detect-secrets）掃描發現。

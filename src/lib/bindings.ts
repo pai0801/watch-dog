@@ -6,11 +6,13 @@
 // Three-way sync point (guards §F/§G/§H hold the line):
 //   .portability.toml [secrets].worker  ≡  REQUIRED_BINDING_KEYS  ≡  wrangler.jsonc secrets.required
 //
-// Note on the watchdog trade-off: a strict throw here takes down the whole
-// worker (heartbeats + cron included) when a secret is missing. That is
-// intentional — Layer 1 (secrets.required) blocks a deploy without it, so a
-// correctly deployed worker always passes; a runtime throw can only mean the
-// secret was deleted after deploy, which deserves a loud failure, not limp.
+// Note on the trade-off: this throw fires at the fetch entry (src/index.ts
+// wrapper) only — the scheduled/cron path deliberately bypasses
+// assertBindings (cron needs no ADMIN_TOKEN and must keep alerting even when
+// the admin secret is missing). Layer 1 (secrets.required) blocks a deploy
+// without it, so a correctly deployed worker always passes; a runtime throw
+// means the secret was deleted after deploy — fetch fails loud, cron keeps
+// watchdogging.
 
 import type { AppBindings } from '../types';
 

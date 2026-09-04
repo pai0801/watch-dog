@@ -18,6 +18,13 @@
 | 7 | `src/services/settings.ts` env-fallback（`SLACK_*` 環境變數）與 `.dev.vars.example` 的 `SLACK_*` | 雙真相來源：DB `settings` 表為主、env 為 legacy fallback（`.portability.toml` 已列 `optional_worker`） | 標 deprecated；訂移除時機（e.g. 兩個專案遷移到 DB settings 後刪 fallback 代碼） | open |
 | 8 | `src/routes/api.ts` legacy `X-Project-Token` header | 新舊並存的接受面（Bearer 為主）；舊客戶端相依 | 盤點仍在用 legacy header 的上報端，全數遷移後移除 | open |
 | 9 | `src/index.ts` `assertBindings` 包裝層 | 無 app-pool 直接單元測試（§I guard 驗證接線存在，非執行路徑行為） | 補一個「缺 ADMIN_TOKEN 時 fetch 回 500」的 workerd-pool 測試 | open |
+| 10 | `tests/guards/portability.test.ts::§B` `scanPrepareArg` | deslop 實測漏攔四向量：前導變數串接（`db.prepare(part + ' FROM t')`）、`['a','b'].join()`、prebuilt var（`const sql='..'+x; db.prepare(sql)`）、>400 字元後才出現 `+`——CLAUDE.md invariant ③「拼接 SQL 預算 = 0（guard 鎖定）」overpromise | guard 加「`.prepare(` 參數非字面值開頭即違規」主規則＋反向樣式 `\w\s*\+\s*['"\`]`＋四向量 fixture 鎖定（D38 注入證明） | open |
+| 11 | `tests/guards/portability.test.ts::§A` src 掃描 | regex 只抓帶引號鍵形態（`['"]KEY['"] = "v"`）；`const KEY = "v"`（無引號鍵）與 backtick 值逃過——註解宣稱比實際寬 | 加無引號鍵樣式 `^\s*[A-Z][A-Z0-9_]+\s*=\s*['"\`]` 或收窄註解宣稱 | open |
+| 12 | `tests/guards/portability.test.ts::§G` | 只鎖 manifest→wrangler 單向；wrangler.jsonc 多列名稱不被抓（bindings.ts「三方 ≡」宣稱只半鎖） | 補反向：wrangler `secrets.required` ⊆ manifest worker | open |
+| 13 | `.secrets.baseline` | 一次性 detect-secrets 掃描證據（2026-09-04 據以發現 docs/plans 洩漏），無任何持續 hook 跑它（工具 user-level 安裝，CI 無保證） | 接 pre-push/CI 掃描（`detect-secrets scan --baseline`）或明示宣告一次性證據定位 | open |
+| 14 | D5/§E import 掃描（`framework.test.ts` / `portability.test.ts`） | `from 'cloudflare:workers'` 只配單引號；雙引號 import 逃過（repo 無 quotes lint 鎖風格） | pattern 改 `['"]` 兩引號 | open |
+| 15 | `secrets-archive/pre-commit-check.sh` §1b 值級掃描 | 行本位 grep 漏多行 JSONC（`"KEY":\n  "value"` 實測 escape；其餘 TOML/JSONC 單雙引號四形態皆攔得住） | 改 python 全文 regex（`\s*` 自然跨行）或 `grep -z` | open |
+| 16 | `AGENTS.md` = `CLAUDE.md` 內文逐字複製（80 行） | header 自認 [MUST] 兩檔同步＝人工漂移陷阱（無機械驗證） | 加 guard/CI diff check（兩檔 body 不一致即紅）或改薄指標 | open |
 
 ## 複本盤點確認非債項（避免重複調查）
 

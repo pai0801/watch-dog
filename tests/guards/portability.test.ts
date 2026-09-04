@@ -115,13 +115,14 @@ it("B 自驗（D38）：內插/串接樣本都被攔；靜態字面值 + .bind()
   for (const b of bad) {
     expect(scanPrepareArg(b.src), `應攔 (${b.kind}): ${b.src}`).toHaveLength(1);
   }
+  // 限制（誠實記錄）：掃描是字面文本比對——註解/字串內含 `.prepare(` + `${`／`'+` 樣式
+  // 同樣會被攔（誤報方向，保守可接受）；反向混淆向量（前導變數串接等）尚未涵蓋，見 TODO-REVIEW #10。
   const good = [
     "db.prepare('SELECT * FROM t WHERE id = ?').bind(id)",
     "db.prepare(`SELECT * FROM checks WHERE monitor = 1`).all()",
     "db.prepare(`INSERT INTO logs (check_id) VALUES (?)`).bind(checkId).run()",
-    "// 假字串：.prepare( 註解裡的 ${notCode} 不算——實際會被掃到，見下",
   ];
-  for (const g of good.slice(0, 3)) {
+  for (const g of good) {
     expect(scanPrepareArg(g), `不應誤殺: ${g}`).toHaveLength(0);
   }
 });

@@ -33,7 +33,7 @@
 | D20 REFLECT artifact | impl | `tests/guards/framework.test.ts::D20` | R1–R5 各段非空、禁裸 N/A 逃避 |
 | D21 THINKING 模板 | impl | `tests/guards/framework.test.ts::D21` | 模板在位 |
 | D39 noUnused flags | impl | `tests/guards/framework.test.ts::D39` | tsconfig `noUnusedLocals`/`noUnusedParameters`（14 §2.2 介面收縮） |
-| D5 cloudflare:workers 隔離 | impl | `tests/guards/framework.test.ts::D5` | gateway `src/lib/runtime.ts` 存在但本專案無需 cloudflare:workers import → 允許清單制（目前零使用） |
+| D5 cloudflare:workers 隔離 | impl | `tests/guards/framework.test.ts::D5` | gateway `src/lib/runtime.ts` **尚未建立**（src 目前 0 處 import）——允許清單僅列該（未存在）路徑＝實質全禁；未來引入時集中該檔 |
 | as-any 預算 | impl | `tests/guards/portability.test.ts::預算` | `src/` 掃 `as any`/`<any>`，預算 0（2026-09-04 從 20 清到 0，ESLint error 雙鎖） |
 
 ## §M 反向 warn 誠實記載（2026-09-04 快照，exit 0 warn 級）
@@ -44,7 +44,7 @@
 
 ## 接線（guard 何時真的在跑）
 
-- **pre-commit**（framework `pre-commit` hooks，`scripts/install-git-hooks.sh` 為 raw 備援）：§L＋§M＋`secrets-archive/pre-commit-check.sh`＋detect-secrets baseline。
+- **pre-commit**（framework `pre-commit` hooks，`scripts/install-git-hooks.sh` 為 raw 備援）：§L＋§M＋`secrets-archive/pre-commit-check.sh`。`.secrets.baseline` 為**一次性** detect-secrets 掃描證據（據以發現 docs/plans 洩漏並 redact），未接持續掃描 hook——待辦見 TODO-REVIEW #13。
 - **pre-push**：`npm test`（workerd app pool 60＋guards pool 20）。
 - **verify 入口**：`./scripts/portability-smoke.sh`（`.portability.toml [verify]` SSoT）。
 - **CI**：`.github/workflows/main.yml`（self-hosted runner，braingo 模式）→ `make install` → `make ci` → backup → cleanup。

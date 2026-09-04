@@ -8,7 +8,7 @@ status=0
 # 1) gitignore 衛生:secret「值」檔不可被 staged;env.7z 必須可追蹤。
 #    wrangler.toml/jsonc 本體是 tracked 公開配置(secret 只放「名稱」、值一律 wrangler secret put),
 #    不做檔名級禁令(否則永遠無法 commit),改由 1b) 值級掃描把關。
-for f in $(git diff --cached --name-only); do
+for f in $(git diff --cached --name-only --diff-filter=ACMR); do
   case "$f" in
     .env|.env.*|.dev.vars|wrangler.*.toml|wrangler.*.jsonc)
       if [[ ! "$f" =~ (\.example|\.bak|\.test)(\..*)?$ ]]; then
@@ -42,10 +42,11 @@ if [ -n "${ENV_SECRET_PASS:-}" ]; then
 fi
 
 # 3) seal-sync:改了 secret 沒 seal → 擋(密碼不可得時降級 warn,不擋)
-if ! bash secrets-archive/seal.sh --check >/tmp/seal-check.$$ 2>&1; then
-  cat /tmp/seal-check.$$
+seal_out="$(mktemp)"
+if ! bash secrets-archive/seal.sh --check >"$seal_out" 2>&1; then
+  cat "$seal_out"
   status=1
 fi
-rm -f /tmp/seal-check.$$
+rm -f "$seal_out"
 
 exit $status

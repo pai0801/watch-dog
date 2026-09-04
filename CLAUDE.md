@@ -42,7 +42,7 @@ DEV_PORT=8789 ./dev-tunnel.sh ngrok
 
 ## 專案資訊
 
-- **GitHub**: git@github.com:paipeter0801/watch-dog.git
+- **GitHub**: git@github.com:pai0801/watch-dog.git
 
 ## Cloudflare Stack Framework
 

@@ -16,7 +16,7 @@ jobs:
       - name: Install Dependencies
         run: make install
 
-      - name: Lint & Build & Test
+      - name: Lint & Test (make ci)
         run: make ci
 
       - name: Run Backup
