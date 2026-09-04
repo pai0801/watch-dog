@@ -5,6 +5,35 @@
 
 ---
 
+## Cycle 2026-09-04（晚）— 採用協議補完輪二（Step 4/6 缺口 + Layer-2 guard 補齊，TODO-REVIEW 16→2）
+
+### R1 [MUST] Directives
+
+- 七步協議逐項驗證：Step 2 baseline 九檔 byte-identical（無 merge-sync 需要）；Step 4 補 hooks 安裝＋baseline freshness 接 CI；Step 5 承重牆 09/10/11/14 產物全數驗證（11 六條自查、14 §5 四項）；Step 6 十項清單全過；Step 7 projects.conf 已註冊（rules 1414dd3）。
+- Layer-2 guard 覆蓋率補齊：§B 主規則化（非字面值開頭即違規）＋§A/§E/§G/D5 樣式補洞＋#16 AGENTS↔CLAUDE guard＋#9 行為測試＋#15 grep -z。
+
+### R2 [NEVER] Directives
+
+- 未違反：無 --no-verify、無 force-push、無明文 secret 經手（detect-secrets 只掃不寫）、無盲 cp（01-CLAUDE.md 為本地調整空間的 N/A 注記，非框架覆蓋）。
+- 當場修正：§B 首版 `\w\s*\+` 樣式誤咬 SQL 算術（`failure_count + 1`）→ 改引號貼鄰雙向；`npm install` 曾讓 lockfile 漂移（peer 標記）→ `npm ci` 對齊。
+
+### R3 Artifact 完整
+
+- 五個 commit：3ad4bf7（CI baseline+seal hang+gen 檔 untrack）、123d6dc（py3.12）、88b0a3c（guard 六向量+bindings 測試）、72e7225（CSS 去重+01 適配注記+TODO-REVIEW 清償）、本 entry 所在 docs commit。
+- TODO-REVIEW 16→2（#7/#8 外部盤點債保留）；FIX-LOG 新 entry 四欄位齊。
+
+### R4 驗證證據
+
+- guards pool 21/21；tsc+eslint 綠；§L/§M/archive ✓；多行 JSONC 注入 D38 證明；baseline freshness exit 0；style 括號深度 0。app pool：本機 glibc 2.31 < workerd 需求 2.32 → 無法本機跑（pre-existing；CI runner 執行，workflows make ci 內含 npm test）。
+
+### R5 經驗記錄
+
+- **seal.sh --check hang 模式**：`get_pass` 的 `read -rs` 在非互動環境（stdin 開著）永久阻塞——合約說「降級 warn」但實作沒餵 `</dev/null`。任何 hook 內呼叫可能互動的函數都要顯式隔離 stdin。
+- **guard 樣式設計**：抓「拼接」不能只用 `\w\s*\+`（SQL 算術全是誤報）——「引號貼鄰 +」才是 SQL 拼接的可區分特徵；主規則「引數必須字面值開頭」比列舉逃逸向量更強（四向量一次全攔）。
+- **detect-secrets `scan --baseline` 會就地更新 baseline 檔**（加 self-exclusion filter + refresh generated_at）——第一次跑後 baseline 有 diff 是預期行為，之後冪等。
+
+---
+
 ## Cycle 2026-09-04 — 框架採用補完（rules/CLAUDE.md 七步消費者協議，Ralph 輪）
 
 ### R1 [MUST] Directives

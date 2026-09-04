@@ -5,6 +5,13 @@
 
 ## Entries
 
+### [2026-09-04] 採用協議補完輪二：Step 4/6 CI 缺口 + seal-check hang + Layer-2 guard 補齊（TODO-REVIEW 16→2）
+**目標**：依 `~/Code/rules/CLAUDE.md` 七步協議逐項驗證補完——機械缺口（hooks 未裝、baseline 無人跑、guard 逃逸向量、文件殘留）全數落地，TODO-REVIEW 16 項清到剩 2 項外部盤點債。
+**原因**：① git hooks 從未安裝（.git/hooks 空）；② `.secrets.baseline` 無任何機制跑它（#13）；③ `seal.sh --check` 的 `get_pass` 在非互動環境讀 stdin 永久阻塞（違反合約「密碼不可得降級 warn」——§L/§M 直跑被 hang 13 分鐘實證）；④ 系統 python3=3.8 無 tomllib，Makefile/smoke/hook 的 §L/§M 必炸；⑤ guard 六個逃逸向量（#9–#12/#14/#15）+ AGENTS↔CLAUDE 無機械鎖（#16）+ CSS 重複定義與不平衡 @media（#1）+ 01-CLAUDE.md 五段範本殘留（#2–#6）；⑥ `worker-configuration.d.ts`（cf-typegen 產物）被追蹤造成 baseline 六個 RFC 範例字串假陽性。
+**預期結果**：hooks 就位（python3.12 探測）；CI 加 baseline freshness step（ENGINEERING_GUIDE §5.2）；seal-check `</dev/null` 不再 hang；§B 主規則「.prepare( 引數非字面值開頭即違規」（四向量 fixture 鎖定）＋引號貼鄰串接（SQL 算術不誤報）；§A 無引號鍵、§G 反向鎖、§E/D5 雙引號、1b `grep -z` 全文（多行 JSONC 注入證明）、AGENTS↔CLAUDE body guard、tests/bindings.test.ts 行為測試；layout.ts 括號深度 0 單一 status-badge；01-CLAUDE.md 五段適配注記；gen 檔 untrack+gitignore。
+**範圍**：`.github/workflows/main.yml`、`.gitignore`、`.secrets.baseline`（refresh）、`secrets-archive/{seal.sh,pre-commit-check.sh}`、`scripts/{install-git-hooks.sh,portability-smoke.sh}`、`Makefile`、`tests/guards/{portability,framework}.test.ts`、`tests/bindings.test.ts`（新）、`src/views/layout.ts`、`01-CLAUDE.md`、`TODO-REVIEW.md`。無 schema 變動、無 secret 值變動、worker-configuration.d.ts untrack（cf-typegen 再生）。
+**驗證**：guards pool 21/21 ✓；tsc+eslint ✓；§L/§M/archive 三件套 ✓；seal-check 無密碼場景 WARN exit 0（hang 修復）✓；多行 JSONC 注入 FAIL→還原綠（D38）✓；baseline freshness `scan --baseline` exit 0 ✓；style 區括號深度 0 ✓。app pool 本機 glibc 2.31<2.32 無法跑（pre-existing 環境限制，CI self-hosted runner 執行；bindings.test.ts 隨 `npm test` 進 CI）。
+
 ### [2026-09-04] deslop 修復輪：§M fresh-checkout 必紅（CI 接線）＋ coverage report 兩處幻覺＋ repo URL
 **目標**：清除 deslop 審查（commit 3b87c86）必修三項——push 前讓 CI 首跑可綠、回報文檔不攜帶幻覺進 rules map、repo 遠端 URL 兩邊一致。
 **原因**：① §M forward 要求 code 讀的 SECRETISH 出現在 env 檔，但 `.env`/`.dev.vars` 為 gitignored——fresh checkout（CI runner，無值檔）必 exit 1，本地綠只是機器相依僥倖；② `docs/guard-coverage-report.md` D5 row 宣稱「runtime.ts 存在」（檔案不存在，guard 實為全禁＋ignore 未存在路徑）與「detect-secrets baseline 已接 pre-commit」（`.secrets.baseline` 無任何機制跑它）；③ CLAUDE.md/AGENTS.md 寫 `paipeter0801/watch-dog`，實際 `git remote` = `pai0801/watch-dog`。
