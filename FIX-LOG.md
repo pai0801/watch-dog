@@ -5,6 +5,13 @@
 
 ## Entries
 
+### [2026-09-04] TODO-REVIEW #7 清償：移除 SLACK_* env fallback——首次部署前落地，DB settings 單一真相源（TODO-REVIEW 16→0）
+**目標**：消除「DB settings 為主、env 為 fallback」的雙真相來源，讓系統從首次部署起就是單一架構。
+**原因**：原處置建議「兩個專案遷移到 DB settings 後刪 fallback」——但重審前提：**系統從未部署**（首次部署待辦），「等遷移」的條件不存在；現在移除 = 零部署受影響、零遷移成本，且與 #8（Bearer-only）同為「出生前收縮介面」模式。
+**預期結果**：`getEnvWithFallback` → `getEffectiveSettings`（只讀 DB）；`sendSlackAlert`/`getSilencePeriod`/`processCheckResult` 簽名拔掉 `env` 參數（alert 鏈不再需要 env）；`trySlackApiToken` accessor 刪除、`OPTIONAL_BINDING_KEYS = []`；`Env` 型別 `SLACK_*` deprecated 欄位全刪；`.portability.toml` `optional_worker = []`＋meta 標歷史記錄；`.dev.vars.example` 移除 SLACK 區塊；SECRETS.md 該列改「已移除」。docs/plans/* 歷史文件保留原文（記錄性文件 [NEVER] 改）。
+**範圍**：`src/services/{settings,alert,logic}.ts`、`src/{cron.ts,routes/api.ts,lib/bindings.ts,types.ts}`、`tests/logic.test.ts`（22 個呼叫點）、`.portability.toml`、`.dev.vars.example`、`secrets-archive/SECRETS.md`、`TODO-REVIEW.md`。無 schema 變動（settings 表不變）；無 secret 值變動。
+**驗證**：tsc ✓（零 error）；eslint ✓；guards pool 21/21 ✓（§F/§G/§H 三方同步：manifest `optional_worker=[]` ≡ `OPTIONAL_BINDING_KEYS=[]` ≡ wrangler `required=[ADMIN_TOKEN]`）；§L/§M ✓；baseline freshness ✓。app pool（cron/alert 行為回歸）本機 workerd glibc 限制無法跑——測試簽名更新全數過 tsc，行為補驗留 CI runner 恢復後首跑（與 #9 同一批）。
+
 ### [2026-09-04] pre-push hook 環境探測（workerd glibc）＋ CI runner 離線發現
 **目標**：讓本機（glibc 2.31，workerd 不可執行）推得出代碼，同時不靜默放棄 app pool 驗證；並把「CI 會補全量」的預設從未驗證假設改為已驗證事實。
 **原因**：① `scripts/install-git-hooks.sh` 的 pre-push 無條件 `npm test`——app pool 跑在 workerd（glibc ≥ 2.32），host Ubuntu 20.04（glibc 2.31）永遠推不出去（實測 push 被 hook 擋）；② 推送時發現 CI run #1（d8a6c9c，03:46 UTC）queued 11+ 小時——self-hosted runner 離線，且本機無 runner 進程/service/家目錄（backup script 在本機、docker sock 無權限，推測容器化 runner 已停）；③ SECRETS.md/FIX-LOG 先前寫「CI 的 make ci 不受影響」「app pool 由 CI runner 執行」均為未驗證主張——`make ci` → `npm test` → `test:app` → workerd 同樣需要 glibc ≥ 2.32。

@@ -18,7 +18,7 @@
 | 4 | `01-CLAUDE.md` §8 R2 規範 | ~~無注記~~ | §8 加 N/A 注記（無 R2/KV binding） | **已清償 2026-09-04**（本輪） |
 | 5 | `01-CLAUDE.md` §10 SEO 鐵三角 | ~~無注記~~ | §10 加 N/A 注記（noindex 監控工具） | **已清償 2026-09-04**（本輪） |
 | 6 | `01-CLAUDE.md` §14 UI 設計原則 | ~~無注記~~ | 標 legacy accepted；新頁面遵循 §14 精神 | **已清償 2026-09-04**（本輪） |
-| 7 | `src/services/settings.ts` env-fallback（`SLACK_*` 環境變數）與 `.dev.vars.example` 的 `SLACK_*` | 雙真相來源：DB `settings` 表為主、env 為 legacy fallback（`.portability.toml` 已列 `optional_worker`） | 標 deprecated；訂移除時機（e.g. 兩個專案遷移到 DB settings 後刪 fallback 代碼） | open |
+| 7 | `src/services/settings.ts` env-fallback（`SLACK_*` 環境變數）與 `.dev.vars.example` 的 `SLACK_*` | ~~雙真相來源：DB `settings` 表為主、env 為 legacy fallback（`.portability.toml` 已列 `optional_worker`）~~ | ~~標 deprecated；訂移除時機~~ → **首次部署前移除**（系統從未部署，零部署受影響）：`getEnvWithFallback` → `getEffectiveSettings`（DB 單一真相源）、`trySlackApiToken`/`OPTIONAL_BINDING_KEYS` 清空、`Env` 型別 `SLACK_*` 欄位刪除、`.portability.toml optional_worker = []`、`.dev.vars.example`/SECRETS.md 同步 | **已清償 2026-09-04**（見 FIX-LOG） |
 | 8 | `src/routes/api.ts` legacy `X-Project-Token` header | ~~新舊並存的接受面~~ | 跨 repo 盤點零使用者 → 移除（f4b47cd，Bearer-only；測試改 401 拒絕鎖死） | **已清償 2026-09-04**（f4b47cd） |
 | 9 | `src/index.ts` `assertBindings` 包裝層 | 無 app-pool 直接單元測試（§I guard 驗證接線存在，非執行路徑行為） | ~~補 workerd-pool 測試~~ → `tests/bindings.test.ts`（fetch entry throw + 單元層；app pool 待 CI runner 恢復後補驗） | **已清償 2026-09-04**（88b0a3c） |
 | 10 | `tests/guards/portability.test.ts::§B` `scanPrepareArg` | ~~deslop 實測漏攔四向量~~ | 主規則「.prepare( 引數非字面值開頭即違規」＋四向量 fixture 鎖定（D38）；SQL 算術誤報以引號貼鄰樣式排除 | **已清償 2026-09-04**（88b0a3c） |

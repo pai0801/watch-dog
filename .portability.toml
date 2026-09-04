@@ -18,8 +18,9 @@ worker = ["ADMIN_TOKEN"]
 
 # optional_worker = runtime 會讀、但缺了不影響核心功能的 secret（10 §5.2 try* accessor 模式；
 # topreview-hotel 先例：optional 不列入 required worker 合約）。
-# SLACK_API_TOKEN：D1 settings 表為主（/admin 設定），env 值僅在 DB 設定為空時 fallback。
-optional_worker = ["SLACK_API_TOKEN"]
+# SLACK_API_TOKEN legacy fallback 已於首次部署前移除（TODO-REVIEW #7，2026-09-04）——
+# D1 settings 表為單一真相源，現無 optional worker secret。
+optional_worker = []
 
 # legacy_names(10 §3 / guard §J)：既有命名 drift 允許清單。目前無。
 
@@ -33,12 +34,15 @@ last_rotated = "2026-09-04（dev 值首次入庫；prod 尚未部署，首次部
 owner = "@peter"
 
 [[secrets.meta]]
+# SLACK_API_TOKEN（legacy env fallback）已於首次部署前移除（TODO-REVIEW #7，2026-09-04）。
+# Slack token 的現行真相源 = D1 settings 表（/admin 設定），非 worker secret——
+# 此 meta 區塊保留歷史記錄，非現役合約。
 name = "SLACK_API_TOKEN"
 env = "all"
 authority = "B"
-provenance = "Slack workspace → app → Bot User OAuth Token（legacy；主要來源為 D1 settings 表，經 /admin 設定）"
+provenance = "Slack workspace → app → Bot User OAuth Token（legacy；已移除 env fallback，現行來源為 D1 settings 表，經 /admin 設定）"
 shared_across = []
-last_rotated = "未輪替（legacy fallback，DB settings 優先）"
+last_rotated = "env fallback 已移除（2026-09-04）；DB settings 值由操作者在 /admin 管理"
 owner = "@peter"
 
 [bootstrap]

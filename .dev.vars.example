@@ -5,12 +5,7 @@
 # Generate one with: openssl rand -hex 24
 ADMIN_TOKEN=change-me-local-admin
 
-# --- Optional legacy Slack fallbacks -------------------------------------
-# Settings primarily live in the D1 settings table (configured via /admin).
-# These env vars are only used when the corresponding DB setting is empty.
-#SLACK_API_TOKEN=
-#SLACK_CHANNEL_CRITICAL=
-#SLACK_CHANNEL_SUCCESS=
-#SLACK_CHANNEL_WARNING=
-#SLACK_CHANNEL_INFO=
-#SLACK_SILENCE_PERIOD_SECONDS=3600
+# --- Slack settings ---------------------------------------------------------
+# Settings live in the D1 settings table (configured via /admin) — the single
+# source of truth. The legacy SLACK_* env fallback was removed before the
+# first production deploy (TODO-REVIEW #7); there are no SLACK_* env vars.

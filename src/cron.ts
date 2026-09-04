@@ -63,7 +63,6 @@ export const scheduled = async (
 
           await processCheckResult(
             env.DB,
-            env,
             check,
             project,
             'dead',

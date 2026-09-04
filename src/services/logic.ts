@@ -12,12 +12,11 @@
 //   overlapping cron runs mark dead at most once.
 
 import { D1Database } from '@cloudflare/workers-types';
-import { Env, Check, Project } from '../types';
+import { Check, Project } from '../types';
 import { sendSlackAlert, isInSilencePeriod, getSilencePeriod } from './alert';
 
 export async function processCheckResult(
   db: D1Database,
-  env: Env,
   check: Check,
   project: Project,
   newStatus: 'ok' | 'error' | 'dead',
@@ -25,7 +24,7 @@ export async function processCheckResult(
   latency: number = 0
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  const globalSilence = await getSilencePeriod(db, env);
+  const globalSilence = await getSilencePeriod(db);
   // A per-check cooldown overrides the global silence period when set.
   const silencePeriod = check.cooldown > 0 ? check.cooldown : globalSilence;
 
@@ -68,7 +67,7 @@ export async function processCheckResult(
     await writeLog();
 
     if (sendRecovery) {
-      await sendSlackAlert(db, env, {
+      await sendSlackAlert(db, {
         checkId: check.id,
         projectName: project.display_name,
         checkName: check.display_name || check.name,
@@ -146,7 +145,7 @@ export async function processCheckResult(
     const title = newStatus === 'dead' ? 'Service DEAD' : 'Service Warning';
     const level = newStatus === 'dead' ? 'critical' : 'warning';
 
-    await sendSlackAlert(db, env, {
+    await sendSlackAlert(db, {
       checkId: check.id,
       projectName: project.display_name,
       checkName: check.display_name || check.name,

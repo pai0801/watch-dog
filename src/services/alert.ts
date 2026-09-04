@@ -2,8 +2,7 @@
 // Slack alert service for Watch-Dog Sentinel
 
 import { D1Database } from '@cloudflare/workers-types';
-import { Env } from '../types';
-import { getEnvWithFallback } from './settings';
+import { getEffectiveSettings } from './settings';
 
 /**
  * Alert levels for Watch-Dog notifications
@@ -81,7 +80,7 @@ const STYLE_MAP: Record<AlertLevel, { emoji: string; color: string }> = {
  * });
  * ```
  */
-export async function sendSlackAlert(db: D1Database, env: Env, data: SlackAlertData): Promise<void> {
+export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Promise<void> {
   const {
     checkId,
     projectName,
@@ -93,8 +92,8 @@ export async function sendSlackAlert(db: D1Database, env: Env, data: SlackAlertD
     metadata = {},
   } = data;
 
-  // Get settings from database with environment variable fallback
-  const settings = await getEnvWithFallback(db, env);
+  // Settings come from the D1 settings table (single source of truth)
+  const settings = await getEffectiveSettings(db);
 
   // Get Slack token from settings
   const token = settings.api_token;
@@ -258,14 +257,12 @@ export function isInSilencePeriod(
 }
 
 /**
- * Get the global silence period from database settings with env fallback
- * (SLACK_SILENCE_PERIOD_SECONDS when no DB row exists).
+ * Get the global silence period from database settings.
  *
  * @param db - D1 database for fetching settings
- * @param env - Worker environment for fallback values
  * @returns Silence period in seconds (default: 3600 = 1 hour)
  */
-export async function getSilencePeriod(db: D1Database, env: Env): Promise<number> {
-  const settings = await getEnvWithFallback(db, env);
+export async function getSilencePeriod(db: D1Database): Promise<number> {
+  const settings = await getEffectiveSettings(db);
   return settings.silence_period_seconds;
 }

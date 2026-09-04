@@ -21,11 +21,11 @@ export const REQUIRED_BINDING_KEYS = ['ADMIN_TOKEN'] as const;
 
 /**
  * Optional runtime secrets — read through accessors below.
- * SLACK_API_TOKEN is a legacy fallback: the D1 settings table is the primary
- * source (configured via /admin); the env var only applies when that DB
- * setting is empty (services/settings.ts getEnvWithFallback).
+ * (Empty since the SLACK_API_TOKEN legacy fallback was removed before the
+ * first production deploy — D1 settings table is the single source of
+ * truth; see TODO-REVIEW #7 and services/settings.ts getEffectiveSettings.)
  */
-export const OPTIONAL_BINDING_KEYS = ['SLACK_API_TOKEN'] as const;
+export const OPTIONAL_BINDING_KEYS = [] as const;
 
 export function assertBindings(env: AppBindings): void {
   const missing = REQUIRED_BINDING_KEYS.filter((k) => !env[k]);
@@ -34,9 +34,4 @@ export function assertBindings(env: AppBindings): void {
       `missing required bindings/secrets: ${missing.join(', ')} — see .portability.toml [secrets] and ~/Code/rules/10-SECRETS-CONTRACT §5.2`,
     );
   }
-}
-
-/** Optional secret accessor (10 §5.2 try* pattern): undefined when unset. */
-export function trySlackApiToken(env: AppBindings): string | undefined {
-  return env.SLACK_API_TOKEN || undefined;
 }

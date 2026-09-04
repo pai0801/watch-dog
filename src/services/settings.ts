@@ -6,7 +6,7 @@
  * - Retrieve all settings from the database
  * - Update individual settings
  * - Update all Slack settings atomically
- * - Get settings with environment variable fallback
+ * - Get effective alert settings (DB is the single source of truth)
  *
  * Settings are stored in the `settings` table and include:
  * - Slack API token and channel IDs
@@ -16,7 +16,6 @@
  */
 
 import { D1Database } from '@cloudflare/workers-types';
-import { Env } from '../types';
 
 /**
  * Database setting record
@@ -157,25 +156,16 @@ export async function updateSlackSettings(db: D1Database, settings: SlackSetting
 }
 
 /**
- * Get settings with environment variable fallback
+ * Get effective alert settings.
  *
- * This function provides a fallback to environment variables for
- * backward compatibility. New deployments should use the database.
+ * The D1 `settings` table is the single source of truth (configured via
+ * /admin). The legacy env-var fallback (SLACK_*) was removed before the
+ * first production deploy, so no deployment ever depended on it
+ * (TODO-REVIEW #7, see FIX-LOG 2026-09-04).
  *
  * @param db - D1 database instance
- * @param env - Cloudflare Worker environment bindings
- * @returns All settings with env var fallbacks
+ * @returns All settings with defaults for missing values
  */
-export async function getEnvWithFallback(db: D1Database, env: Env): Promise<AllSettings> {
-  const dbSettings = await getAllSettings(db);
-
-  // Fallback to env vars if DB setting is empty
-  return {
-    api_token: dbSettings.api_token || env.SLACK_API_TOKEN || '',
-    channel_critical: dbSettings.channel_critical || env.SLACK_CHANNEL_CRITICAL || '',
-    channel_success: dbSettings.channel_success || env.SLACK_CHANNEL_SUCCESS || '',
-    channel_warning: dbSettings.channel_warning || env.SLACK_CHANNEL_WARNING || '',
-    channel_info: dbSettings.channel_info || env.SLACK_CHANNEL_INFO || '',
-    silence_period_seconds: dbSettings.silence_period_seconds || parseInt(env.SLACK_SILENCE_PERIOD_SECONDS || '3600', 10),
-  };
+export async function getEffectiveSettings(db: D1Database): Promise<AllSettings> {
+  return getAllSettings(db);
 }

@@ -11,7 +11,6 @@ import { processCheckResult, findDeadChecks } from '../src/services/logic';
 import type { Check } from '../src/types';
 import {
   DB,
-  TEST_ENV,
   TEST_SLACK,
   getCheck,
   countLogs,
@@ -42,7 +41,7 @@ describe('processCheckResult — ok transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id);
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse received');
+    await processCheckResult(DB, check, project, 'ok', 'Pulse received');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('ok');
@@ -56,7 +55,7 @@ describe('processCheckResult — ok transitions', () => {
     // Previously failed past threshold (e.g. cron marked it dead)
     const check = await seedCheck(project.id, { status: 'dead', failure_count: 3 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse received');
+    await processCheckResult(DB, check, project, 'ok', 'Pulse received');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('ok');
@@ -68,7 +67,7 @@ describe('processCheckResult — ok transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { status: 'error', failure_count: 0, threshold: 3 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse received');
+    await processCheckResult(DB, check, project, 'ok', 'Pulse received');
 
     expect(slackCalls.length).toBe(0);
   });
@@ -79,7 +78,7 @@ describe('processCheckResult — failure transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { threshold: 3 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down');
+    await processCheckResult(DB, check, project, 'error', 'db down');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('error');
@@ -91,7 +90,7 @@ describe('processCheckResult — failure transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { threshold: 2, failure_count: 1 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down');
+    await processCheckResult(DB, check, project, 'error', 'db down');
 
     const updated = await getCheck(check.id);
     expect(updated?.failure_count).toBe(2);
@@ -103,7 +102,7 @@ describe('processCheckResult — failure transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, {});
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('dead');
@@ -114,7 +113,7 @@ describe('processCheckResult — failure transitions', () => {
     const project = await seedProject({ maintenance_until: nowSec() + 600 });
     const check = await seedCheck(project.id);
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('dead'); // state still recorded
@@ -126,7 +125,7 @@ describe('processCheckResult — failure transitions', () => {
     // Alerted 100s ago; silence period is 3600s
     const check = await seedCheck(project.id, { last_alert_at: nowSec() - 100 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     expect(slackCalls.length).toBe(0); // still silenced
     const updated = await getCheck(check.id);
@@ -137,7 +136,7 @@ describe('processCheckResult — failure transitions', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { last_alert_at: nowSec() - 4000 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     expect(slackCalls.length).toBe(1);
   });
@@ -151,7 +150,7 @@ describe('per-check cooldown overrides the global silence period', () => {
     // for an hour, which is the bug.
     const check = await seedCheck(project.id, { cooldown: 60, last_alert_at: nowSec() - 100 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     expect(slackCalls.length).toBe(1);
     expect((await getCheck(check.id))?.status).toBe('dead');
@@ -161,7 +160,7 @@ describe('per-check cooldown overrides the global silence period', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { cooldown: 0, last_alert_at: nowSec() - 100 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     expect(slackCalls.length).toBe(0); // global 3600s still silences
   });
@@ -174,7 +173,7 @@ describe('alert channel routing', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id);
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     expect(slackCalls.length).toBe(1);
     expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_critical);
@@ -184,7 +183,7 @@ describe('alert channel routing', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { threshold: 2, failure_count: 1 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down');
+    await processCheckResult(DB, check, project, 'error', 'db down');
 
     expect(slackCalls.length).toBe(1);
     expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_warning);
@@ -194,7 +193,7 @@ describe('alert channel routing', () => {
     const project = await seedProject();
     const check = await seedCheck(project.id, { status: 'dead', failure_count: 1 });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse received');
+    await processCheckResult(DB, check, project, 'ok', 'Pulse received');
 
     expect(slackCalls.length).toBe(1);
     expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_success);
@@ -210,7 +209,7 @@ describe('concurrency invariants (D1 CAS)', () => {
     const fresher = nowSec();
     await DB.prepare('UPDATE checks SET last_seen = ? WHERE id = ?').bind(fresher, check.id).run();
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('ok'); // pulse state preserved
@@ -225,7 +224,7 @@ describe('concurrency invariants (D1 CAS)', () => {
     const lastSeen = nowSec() - 3600;
     const check = await seedCheck(project.id, { last_seen: lastSeen });
 
-    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+    await processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('dead');
@@ -238,8 +237,8 @@ describe('concurrency invariants (D1 CAS)', () => {
 
     // Same stale object, as two cron runs that fetched the row concurrently.
     await Promise.all([
-      processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!'),
-      processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!'),
+      processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!'),
+      processCheckResult(DB, check, project, 'dead', 'Heartbeat missed!'),
     ]);
 
     const updated = await getCheck(check.id);
@@ -253,8 +252,8 @@ describe('concurrency invariants (D1 CAS)', () => {
     const check = await seedCheck(project.id, { threshold: 1 });
 
     await Promise.all([
-      processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down #1'),
-      processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down #2'),
+      processCheckResult(DB, check, project, 'error', 'db down #1'),
+      processCheckResult(DB, check, project, 'error', 'db down #2'),
     ]);
 
     const updated = await getCheck(check.id);
@@ -268,8 +267,8 @@ describe('concurrency invariants (D1 CAS)', () => {
     const check = await seedCheck(project.id, { status: 'dead', failure_count: 1 });
 
     await Promise.all([
-      processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse A'),
-      processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse B'),
+      processCheckResult(DB, check, project, 'ok', 'Pulse A'),
+      processCheckResult(DB, check, project, 'ok', 'Pulse B'),
     ]);
 
     const updated = await getCheck(check.id);

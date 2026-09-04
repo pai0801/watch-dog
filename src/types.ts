@@ -16,23 +16,13 @@
  * Cloudflare Worker environment bindings
  *
  * These values are configured in wrangler.toml or Cloudflare dashboard.
- * Some are legacy fallbacks; settings are now primarily stored in DB.
+ * Alert settings live in the D1 `settings` table (single source of truth,
+ * configured via /admin); the legacy SLACK_* env fallback was removed
+ * before the first production deploy (TODO-REVIEW #7).
  */
 export interface Env {
   /** D1 Database binding */
   DB: D1Database;
-  /** @deprecated Use settings table instead */
-  SLACK_API_TOKEN?: string;
-  /** @deprecated Use settings table instead */
-  SLACK_CHANNEL_CRITICAL?: string;
-  /** @deprecated Use settings table instead */
-  SLACK_CHANNEL_SUCCESS?: string;
-  /** @deprecated Use settings table instead */
-  SLACK_CHANNEL_WARNING?: string;
-  /** @deprecated Use settings table instead */
-  SLACK_CHANNEL_INFO?: string;
-  /** @deprecated Use settings table instead */
-  SLACK_SILENCE_PERIOD_SECONDS?: string;
 }
 
 /**

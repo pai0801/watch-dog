@@ -226,7 +226,6 @@ api.post('/api/pulse', async (c) => {
 
     await processCheckResult(
       db,
-      c.env,
       check,
       project,
       newStatus,
