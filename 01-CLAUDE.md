@@ -26,10 +26,10 @@
 | 技術 | 技術棧 | 版本 |
 |---|---|---|
 | Runtime | Cloudflare Workers / Pages | 最新 wrangler |
-| Framework | Astro 6 (SSR) + Hono 4 (routing/middleware) + Svelte 5 (UI, runes only) | package.json engines |
-| ORM | Drizzle (SQLite dialect, D1) | ^0.30.0 |
-| Storage | D1 (關聯) + KV (快取/session) + R2 (物件/圖片) | Cloudflare 平台 |
-| Testing | Vitest + @cloudflare/vitest-pool-workers | Vitest 2.x |
+| Framework | Hono 4（routing/middleware + hono/html 視圖,無 Astro/Svelte） | package.json |
+| Database | D1 + 原生 prepared statements（本專案未用 ORM;見 §3 注記） | D1 |
+| Storage | D1（關聯） | Cloudflare 平台 |
+| Testing | Vitest 4 + @cloudflare/vitest-plugin + @msw/cloudflare | Vitest 4.x |
 | Linting | ESLint 9 (flat config) + custom rules | flat config |
 
 [MUST] 寫任何程式碼前先檢查 `package.json` 的版本釘選。
@@ -38,7 +38,7 @@
 
 ## 2. 邊緣架構原則
 
-**Hono -> Astro 單一 Worker 連鎖**：Hono middleware 處理 rate limiting / tenant blocking / security filtering；未攔截的請求 `next()` 傳給 Astro SSR。
+**Hono 單一 Worker**（本專案無 Astro 層）：Hono middleware 處理 auth / security filtering；路由掛載於 `src/routes/`（api / admin / dashboard）。
 
 | 規則 | 指令 |
 |---|---|
@@ -50,6 +50,11 @@
 ---
 
 ## 3. Drizzle ORM 強制規範
+
+> **本專案注記**：watch-dog 未使用 Drizzle —— 全部查詢用 D1 prepared
+> statements（`env.DB.prepare(...).bind(...)`）。本節 Drizzle 條目僅供框架
+> 相容保留;實際遵循的是「參數化查詢、禁止字串拼接 SQL、WHERE 帶 project
+> 過濾」等同等規範。
 
 | 規則 | 指令 | 說明 |
 |---|---|---|

@@ -4,13 +4,17 @@ Base URL: `https://watch-dog.paipeter-gui.workers.dev`
 
 ## Authentication
 
-All API requests require authentication via the `X-Project-Token` header:
+Machine API requests authenticate with the project token, preferably as a
+Bearer token (the legacy `X-Project-Token` header still works):
 
 ```
-X-Project-Token: your-project-token-here
+Authorization: Bearer your-project-token-here
 ```
 
 Each project has its own unique token, which you can generate in the Admin Dashboard.
+
+The `/admin` dashboard is separate: it sits behind HTTP Basic Auth where the
+password is the `ADMIN_TOKEN` Worker secret (username is ignored).
 
 ---
 
@@ -178,8 +182,15 @@ Get status for a specific project.
 
 Toggle maintenance mode for a project (suppresses alerts during maintenance).
 
+**Requires the project token** (`Authorization: Bearer ...`) — unauthenticated
+callers cannot mute alerts.
+
 **Request:**
-```json
+```http
+POST /api/maintenance/my-service
+Authorization: Bearer your-token
+Content-Type: application/json
+
 {
   "enabled": true,
   "duration": 3600

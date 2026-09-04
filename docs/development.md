@@ -17,21 +17,20 @@ npm install
 
 ### 2. Configure Wrangler
 
-Edit `wrangler.toml` with your Cloudflare account details:
+Bindings live in `wrangler.jsonc`:
 
-```toml
-name = "watch-dog"
-main = "src/index.tsx"
-compatibility_date = "2024-01-01"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "watch-dog-db"
-database_id = "your-database-id"
-
-[triggers]
-crons = ["* * * * *"]
+```jsonc
+{
+  "name": "watch-dog",
+  "main": "src/index.ts",
+  "compatibility_date": "...",
+  "d1_databases": [{ "binding": "DB", "database_name": "watch-dog-db", "database_id": "your-database-id" }],
+  "triggers": { "crons": ["* * * * *"] }
+}
 ```
+
+Local secrets (e.g. the admin password) go in `.dev.vars` — copy
+`.dev.vars.example` to get started.
 
 ### 3. Create D1 Database
 
@@ -39,7 +38,7 @@ crons = ["* * * * *"]
 npx wrangler d1 create watch-dog-db
 ```
 
-Copy the `database_id` to your `wrangler.toml`.
+Copy the `database_id` into your `wrangler.jsonc`.
 
 ### 4. Run Migrations
 
@@ -48,7 +47,16 @@ Copy the `database_id` to your `wrangler.toml`.
 npx wrangler d1 execute watch-dog-db --local --file=src/db.sql
 
 # Production
-npx wrangler d1 execute watch-dog-db --file=src/db.sql
+npx wrangler d1 execute watch-dog-db --remote --file=src/db.sql
+```
+
+### 5. Set the Admin Password
+
+`/admin` requires the `ADMIN_TOKEN` secret (Basic Auth password; username
+ignored). For local dev put it in `.dev.vars`; for production:
+
+```bash
+npx wrangler secret put ADMIN_TOKEN
 ```
 
 ## Local Development
@@ -64,7 +72,7 @@ The server runs at `http://localhost:8787`.
 ### Type Checking
 
 ```bash
-npx tsc --noEmit
+npm run typecheck
 ```
 
 ### Run Migrations Locally
@@ -94,6 +102,18 @@ npx wrangler deploy --env production
 ```
 
 ## Testing
+
+### Automated Tests
+
+```bash
+npm test
+```
+
+The suite runs inside workerd via `@cloudflare/vitest-plugin` (workerd-faithful:
+D1, cron handler, and the real worker `fetch`), with `@msw/cloudflare`
+intercepting outbound Slack API calls. Coverage: alert state machine
+(threshold / silence / maintenance / recovery), API auth, admin Basic Auth +
+CSRF guard + token masking, and the cron handler.
 
 ### Manual Testing Checklist
 
@@ -151,13 +171,29 @@ The cron handler runs every minute. To test:
 
 ```
 src/
-├── index.tsx          # Main entry point (API routes, UI, cron)
+├── index.ts           # Entry point: Hono app, mounts routes, exports fetch + scheduled
+├── cron.ts            # Cron handler (dead-check detection, self-health, log cleanup)
 ├── db.sql             # Database schema
 ├── types.ts           # TypeScript type definitions
+├── client_example.py  # Reference Python client (see docs/usage.md)
+├── routes/
+│   ├── api.ts         # Machine API (config / pulse / maintenance / status)
+│   ├── admin.ts       # Admin dashboard routes (behind Basic Auth + CSRF guard)
+│   └── dashboard.ts   # Public read-only dashboard
+├── views/
+│   ├── layout.ts      # HTML layout + CSS
+│   ├── dashboard.ts   # Public dashboard views
+│   └── adminViews.ts  # Admin page views (token masked)
+├── middleware/
+│   └── adminAuth.ts   # Basic Auth (ADMIN_TOKEN) + XHR/htmx CSRF check
+├── lib/
+│   └── auth.ts        # Constant-time token compare, project auth helpers
 └── services/
     ├── logic.ts       # Check processing state machine
     ├── alert.ts       # Slack alert service
-    └── settings.ts    # Settings management
+    ├── settings.ts    # Settings management
+    └── maintenance.ts # Maintenance mode state transitions
+tests/                 # vitest suite (runs inside workerd)
 docs/                  # Documentation
 ```
 
@@ -202,10 +238,9 @@ If you get "database not found" errors:
 
 ### Cron Not Triggering
 
-Check `wrangler.toml` has the cron trigger:
-```toml
-[triggers]
-crons = ["* * * * *"]
+Check `wrangler.jsonc` has the cron trigger:
+```jsonc
+"triggers": { "crons": ["* * * * *"] }
 ```
 
 ### TypeScript Errors

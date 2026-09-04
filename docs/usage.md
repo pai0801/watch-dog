@@ -3,7 +3,7 @@
 ## 服務地址
 
 **Watch-Dog Sentinel URL:** `https://watch-dog.paipeter-gui.workers.dev/`
-**Admin 管理頁面:** `https://watch-dog.paipeter-gui.workers.dev/admin`
+**Admin 管理頁面:** `https://watch-dog.paipeter-gui.workers.dev/admin`（需 Admin 密碼,見下方）
 
 ---
 
@@ -17,7 +17,11 @@ Watch-Dog Sentinel 是一個**被動監控系統**（Dead Man's Switch）。服�
 |------|------|
 | **Project Token** | 每個項目獨立的 Token，用於客戶端 API 認證 |
 | **Slack API Token** | 全局設置，用於向 Slack 發送通知 |
+| **Admin 密碼 (ADMIN_TOKEN)** | `/admin` 頁面的 HTTP Basic Auth 密碼（Worker secret,用戶名任意） |
 | **Monitor 開關** | 勾選=監控該檢查，不勾選=跳過（不會觸發警報） |
+
+> **安全提示**：`/api/maintenance/:projectId` 也需要 Project Token；
+> Slack API Token 只顯示遮罩（`••••••••1234`），表單留空 = 保留現有值。
 
 ---
 
@@ -59,13 +63,15 @@ import requests
 import threading
 
 class WatchDogClient:
-    def __init__(self, token: str):
+    def __init__(self, token: str, project_id: str, display_name: str):
         self.base_url = "https://watch-dog.paipeter-gui.workers.dev"
         self.headers = {"Authorization": f"Bearer {token}"}
+        self.project_id = project_id
+        self.display_name = display_name
 
     def register_checks(self, checks: list):
-        """註冊檢查規則"""
-        payload = {"checks": checks}
+        """註冊檢查規則（project_id / display_name 為 API 必填欄位）"""
+        payload = {"project_id": self.project_id, "display_name": self.display_name, "checks": checks}
         threading.Thread(target=self._do_register, args=(payload,)).start()
 
     def _do_register(self, payload):
@@ -91,7 +97,7 @@ class WatchDogClient:
             pass
 
 # 使用範例
-wd = WatchDogClient(token="your-project-token-here")
+wd = WatchDogClient(token="your-project-token-here", project_id="my-service", display_name="我的服務")
 
 # 啟動時註冊
 wd.register_checks([{
@@ -136,7 +142,11 @@ type CheckConfig = {
 export class WatchDog {
   private baseUrl = "https://watch-dog.paipeter-gui.workers.dev";
 
-  constructor(private token: string) {}
+  constructor(
+    private token: string,
+    private projectId: string,
+    private displayName: string
+  ) {}
 
   async register(checks: CheckConfig[]) {
     await fetch(`${this.baseUrl}/api/config`, {
@@ -145,7 +155,8 @@ export class WatchDog {
         'Authorization': `Bearer ${this.token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ checks })
+      // project_id / display_name are required by the API
+      body: JSON.stringify({ project_id: this.projectId, display_name: this.displayName, checks })
     }).catch(() => {});
   }
 
@@ -167,7 +178,7 @@ export class WatchDog {
 }
 
 // 使用
-const wd = new WatchDog('your-project-token-here');
+const wd = new WatchDog('your-project-token-here', 'my-service', 'My Service');
 
 await wd.register([{
   name: 'api_server',
@@ -242,6 +253,8 @@ Authorization: Bearer {project_token}
 Content-Type: application/json
 
 {
+  "project_id": "my-service",
+  "display_name": "我的服務",
   "checks": [
     {
       "name": "my_check",
@@ -261,9 +274,10 @@ Content-Type: application/json
 ## Admin 管理頁面
 
 訪問 `https://watch-dog.paipeter-gui.workers.dev/admin`
+瀏覽器會要求 Basic Auth：用戶名任意，密碼 = `ADMIN_TOKEN` Worker secret。
 
 ### Settings 標籤
-- 配置 Slack API Token 和頻道 ID
+- 配置 Slack API Token 和頻道 ID（Token 欄位顯示遮罩,留空送出 = 保留現有 Token）
 - 設定警報冷卻時間
 
 ### Projects 標籤

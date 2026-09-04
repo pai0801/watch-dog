@@ -2,13 +2,25 @@
 
 Manual testing checklist for `/admin` page at https://watch-dog.paipeter-gui.workers.dev/admin
 
+> Core behavior (auth gate, CSRF, token masking, alerting state machine, cron)
+> is covered by the automated suite — run `npm test`. This checklist is the
+> manual UI pass on top.
+
+## Authentication (Basic Auth)
+- [ ] Visiting `/admin` without credentials shows a browser Basic Auth prompt
+- [ ] Wrong password is rejected (401, prompt reappears)
+- [ ] Correct `ADMIN_TOKEN` password (any username) opens the dashboard
+- [ ] Mutating actions without `X-Requested-With`/`X-HX-Request` are blocked (403) — cross-site form POSTs cannot pass the CSRF guard
+
 ## Tab Switching
 - [ ] Settings/Projects/Checks buttons switch tabs correctly
 - [ ] Active tab shows primary button style
 - [ ] Inactive tabs show outline secondary style
 
 ## Settings Tab
-- [ ] Slack API Token field displays current value
+- [ ] Slack API Token field shows a mask (`••••••••1234`), never the stored token
+- [ ] Saving with the token field empty keeps the existing token
+- [ ] Saving with a new token rotates it
 - [ ] Channel fields display current values
 - [ ] Silence Period field displays current value
 - [ ] Save Settings button submits without page reload

@@ -23,7 +23,7 @@ npm install
 
 ### 2. Configure Environment
 
-Edit `wrangler.toml` with your Cloudflare account details.
+Edit `wrangler.jsonc` with your Cloudflare account details (D1 `database_id`, cron trigger).
 
 ### 3. Setup Database
 
@@ -31,19 +31,38 @@ Edit `wrangler.toml` with your Cloudflare account details.
 # Local development
 npx wrangler d1 execute watch-dog-db --local --file=src/db.sql
 
-# Production
-npx wrangler d1 execute watch-dog-db --file=src/db.sql
+# Production (after `wrangler d1 create watch-dog-db`)
+npx wrangler d1 execute watch-dog-db --remote --file=src/db.sql
 ```
 
-### 4. Deploy
+### 4. Set the Admin Password
+
+The `/admin` dashboard sits behind HTTP Basic Auth (any username; the password
+is the `ADMIN_TOKEN` Worker secret):
+
+```bash
+# Generate a strong password
+openssl rand -hex 24
+
+# Set it as a Worker secret (prompted interactively)
+npx wrangler secret put ADMIN_TOKEN
+```
+
+For local dev, copy `.dev.vars.example` to `.dev.vars` and set `ADMIN_TOKEN`
+there instead.
+
+### 5. Deploy
 
 ```bash
 npm run deploy
 ```
 
-### 5. Configure Slack
+### 6. Configure Slack
 
-Visit `https://<your-worker-url>/admin` and configure your Slack settings.
+Visit `https://<your-worker-url>/admin` (browser will ask for the admin
+password) and configure your Slack settings. The Slack API token is stored in
+D1, never echoed back to the page, and left unchanged when the field is
+submitted empty.
 
 ## Usage
 
@@ -51,14 +70,14 @@ See [docs/usage.md](docs/usage.md) for detailed usage instructions and client in
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/pulse` | POST | Report heartbeat |
-| `/api/config` | PUT | Register project/checks |
-| `/api/status` | GET | Get all statuses |
-| `/api/status/:projectId` | GET | Get project status |
-| `/api/maintenance/:projectId` | POST | Toggle maintenance mode |
-| `/admin` | GET | Admin dashboard |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/pulse` | POST | project token | Report heartbeat |
+| `/api/config` | PUT | project token | Register project/checks |
+| `/api/status` | GET | public | Get all statuses |
+| `/api/status/:projectId` | GET | public | Get project status |
+| `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
+| `/admin` | GET | Basic Auth (`ADMIN_TOKEN`) | Admin dashboard |
 
 ## Development
 
@@ -67,7 +86,10 @@ See [docs/usage.md](docs/usage.md) for detailed usage instructions and client in
 npm run dev
 
 # Type checking
-npx tsc --noEmit
+npm run typecheck
+
+# Run the test suite (vitest, inside workerd)
+npm test
 
 # Deploy to production
 npm run deploy
