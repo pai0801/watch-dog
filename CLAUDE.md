@@ -33,13 +33,13 @@ DEV_PORT=8789 ./dev-tunnel.sh ngrok
 ./dev-tunnel.sh stop
 ```
 
-### 環境限制（2026-09-04 實測）
+### 環境限制（2026-09-05 實測）
 
 | 項目 | 狀態 |
 |------|-----|
-| **workerd（dev server / app pool）** | ❌ 本機 glibc 2.31 < 2.32 需求——`wrangler dev`（含 node 22 下）與 `npm run test:app` 均不可執行；dev 需 glibc ≥ 2.32 環境（容器/新主機） |
-| **wrangler CLI（deploy/types）** | ⚠ 需 node ≥ 22——user-space tarball 免 sudo方案已驗證（見 `secrets-archive/SECRETS.md` 首次部署段） |
-| **pre-push hook** | workerd 不可執行時自動降級（typecheck+lint+guards，大聲標示），app pool 留 CI 補全量 |
+| **workerd（dev server / app pool）** | ✅ 本機 glibc 2.39（2026-09-04 前為 2.31 不可執行，主機升級後解除）——`wrangler dev` 與 `npm run test:app` 本機可跑 |
+| **wrangler CLI（deploy/types）** | ✅ node v24（≥22 需求滿足；node <22 環境的 user-space tarball 免 sudo方案見 `secrets-archive/SECRETS.md` 首次部署段） |
+| **pre-push / smoke** | 本機走全量模式（npm test 雙 pool）；workerd 不可執行環境自動降級（typecheck+lint+guards，大聲標示）——降級路徑保留給舊主機/容器 |
 
 ## 專案資訊
 

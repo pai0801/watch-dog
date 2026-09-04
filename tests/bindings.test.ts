@@ -19,9 +19,13 @@ describe('assertBindings (Layer 2 fail-fast, fetch entry)', () => {
       waitUntil: () => undefined,
       passThroughOnException: () => undefined,
     } as unknown as ExecutionContext;
-    await expect(
-      worker.fetch(new Request('http://localhost/'), emptyEnv, ctx),
-    ).rejects.toThrow(/missing required bindings\/secrets: ADMIN_TOKEN/);
+    // index.ts 的 fetch wrapper 非 async——assertBindings 同步 throw，不會變成
+    // rejected promise。async IIFE 把「同步 throw」與「rejected promise」兩種
+    // surface 都收斂成 rejected promise 再斷言（不變式：缺 secret 必 fail-fast、
+    // 訊息指名 key；至於 sync throw 或 1101 由 runtime 決定，非本測試鎖定範圍）。
+    const fetchEntry = (async () =>
+      worker.fetch(new Request('http://localhost/'), emptyEnv, ctx))();
+    await expect(fetchEntry).rejects.toThrow(/missing required bindings\/secrets: ADMIN_TOKEN/);
   });
 
   it('直呼 assertBindings：缺值 throw、齊值通過（單元層）', async () => {

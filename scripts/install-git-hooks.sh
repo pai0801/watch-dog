@@ -4,11 +4,8 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# §L/§M 需 tomllib（py≥3.11）；系統 python3 可能更舊——挑可用的。
-PY=python3
-if ! "$PY" -c "import tomllib" >/dev/null 2>&1; then
-  if command -v python3.12 >/dev/null 2>&1; then PY=python3.12; fi
-fi
+# §L/§M 需 tomllib（py≥3.11）——挑可用 python（scripts/pick-python.sh 單一真相源）。
+PY="$(bash scripts/pick-python.sh)"
 
 cat > .git/hooks/pre-commit <<EOF
 #!/usr/bin/env bash

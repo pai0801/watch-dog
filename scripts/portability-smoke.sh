@@ -5,9 +5,8 @@ set -euo pipefail
 # wrangler dev 為 foreground server，不在本腳本（手動另行）。
 cd "$(dirname "$0")/.."
 
-# §L/§M 需 tomllib（py≥3.11）；系統 python3 可能更舊——挑可用的。
-PY=python3
-"$PY" -c "import tomllib" 2>/dev/null || PY=python3.12
+# §L/§M 需 tomllib（py≥3.11）——挑可用 python（scripts/pick-python.sh 單一真相源）。
+PY="$(bash scripts/pick-python.sh)"
 
 npm run typecheck
 npm run lint

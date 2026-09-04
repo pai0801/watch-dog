@@ -15,6 +15,16 @@ import { D1Database } from '@cloudflare/workers-types';
 import { Check, Project } from '../types';
 import { sendSlackAlert, isInSilencePeriod, getSilencePeriod } from './alert';
 
+// Claim the alert slot via CAS on last_alert_at: only the writer that flips
+// it may send, so concurrent pulses / overlapping runs yield exactly one
+// Slack alert (recovery and error paths share this claim). The SQL stays a
+// single inline literal per the §B guard (no const indirection).
+const claimAlertSlot = (db: D1Database, check: Check, now: number) =>
+  db
+    .prepare('UPDATE checks SET last_alert_at = ? WHERE id = ? AND last_alert_at = ?')
+    .bind(now, check.id, check.last_alert_at)
+    .run();
+
 export async function processCheckResult(
   db: D1Database,
   check: Check,
@@ -45,10 +55,7 @@ export async function processCheckResult(
     // streak must yield exactly one alert.
     let sendRecovery = false;
     if (shouldRecover) {
-      const claim = await db
-        .prepare('UPDATE checks SET last_alert_at = ? WHERE id = ? AND last_alert_at = ?')
-        .bind(now, check.id, check.last_alert_at)
-        .run();
+      const claim = await claimAlertSlot(db, check, now);
       sendRecovery = (claim.meta.changes ?? 0) === 1;
     }
 
@@ -117,10 +124,7 @@ export async function processCheckResult(
   } else {
     // Claim the alert before sending; the state update itself is unconditional.
     if (wantsAlert) {
-      const claim = await db
-        .prepare('UPDATE checks SET last_alert_at = ? WHERE id = ? AND last_alert_at = ?')
-        .bind(now, check.id, check.last_alert_at)
-        .run();
+      const claim = await claimAlertSlot(db, check, now);
       if ((claim.meta.changes ?? 0) === 0) {
         wantsAlert = false; // a racing writer already alerted
       }

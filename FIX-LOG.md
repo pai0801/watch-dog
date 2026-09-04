@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] 雙軸 code-review 收尾輪：文件漂移三處＋sent-log 誤 commit＋去重兩形態＋環境升級現形的潛在測試 bug
+
+**目標**：清償 2026-09-05 雙軸 code-review（Standards/Spec 平行 sub-agent，範圍 `2fd00ff...HEAD` 30 commits）全部可行動 findings，並處理驗證途中現形的存量測試 bug。
+**原因**：① TODO-REVIEW 舊債段標頭仍稱「剩 #7 open」（88b0a3c 時期文本，042c8d2 清償後未同步）——與 #7 row／FIX-LOG 宣稱自相矛盾；② `docs/99-llm-task-web-todo.md`（fleet sent-log 個人待辦鏡像）經 909c07a 誤 commit——`~/.gitignore_global` 只蓋 `-log-*` 變體；③ `.secrets-optional` 殘留 `SLACK_API_TOKEN`，違反自身「≡ optional_worker（=[]）」同步宣稱——正是 10-SECRETS-CONTRACT 要防的兩清單漂移；④ review smell：CAS claim SQL 兩處重複、tomllib python 挑選三處重複且已各自漂移（盲目 fallback vs 探測後 fallback）；⑤ 驗證時發現主機已升級（glibc 2.31→2.39、node 20→24、workerd 2026-09-03 可執行）——app pool 首次本機可跑，`tests/bindings.test.ts` 首跑現形失敗：fetch entry 是同步 throw（index.ts 非 async），`expect(...).rejects` 在參數求值時就接不到——該測試寫於 workerd 不可跑時期，此前從未在任何環境執行（本機 ❌＋CI runner 離線的雙重空窗）。
+**預期結果**：TODO-REVIEW 標頭改「16 項全數清償、零未償」＋row 保留為歷史記錄的規則注記；todo 檔 `git rm --cached`（本地保留）＋global pattern 拓寬 `docs/99-llm-task-web-log-*.md`→`docs/99-llm-task-web-*`；`.secrets-optional` 刪 stale 行（空 allowlist ≡ optional_worker=[]；本地 `.env` 殘留 `SLACK_*` 陳年 key 由 §M 反向 WARN 如實揭露，清檔＋reseal 留操作者域 A 處理）；logic.ts 抽 `claimAlertSlot` 共用 helper（SQL 字面值仍在 helper 內 inline——§B guard 禁 `.prepare()` 非 literal 引數，文檔標準優先於 Duplicated Code smell 的去重邊界）；新增 `scripts/pick-python.sh` 單一真相源（Makefile/smoke/install-git-hooks 三處改引用）；bindings 測試改 async IIFE 收斂 sync-throw／rejected-promise 兩種 surface（鎖不變式：缺 ADMIN_TOKEN 必 fail-fast＋訊息指名 key）；CLAUDE.md＋AGENTS.md 環境限制表鏡像更新為 2026-09-05 實測（workerd ✅／wrangler ✅ node24／降級路徑保留給舊主機容器）。**裁定不動**（review findings 記錄處置）：node 探測 fail-handling 分歧（check-env.sh fail-closed vs smoke 降級）為 intentional 分工——前者 CI 全量環境 hard-fail、後者開發機誠實降級；`silencePeriod` 雙概念名（per-check cooldown vs global silence，有註解有測試）、api.ts invalid check name 靜默 drop 沿既有 idiom，低嚴重度留流動。
+**範圍**：`TODO-REVIEW.md`、`.secrets-optional`、`docs/99-llm-task-web-todo.md`（退追蹤）、`src/services/logic.ts`（純抽取零行為變更）、`tests/bindings.test.ts`（斷言方式）、`scripts/pick-python.sh`（新增）、`Makefile`、`scripts/{portability-smoke.sh,install-git-hooks.sh}`、`CLAUDE.md`＋`AGENTS.md`（guard #16 鏡像）、`~/.gitignore_global`（非 repo 檔）。無 schema、無 secret 值、無 API 行為變動。
+**驗證**：portability-smoke **全量模式**全綠（typecheck ✓ eslint ✓ **app pool 62/62 ✓** guards 21/21 ✓ build dry-run 126.88 KiB ✓ §L ✓ §M 反向 WARN 如預期現形 `SLACK_API_TOKEN`＋既有 `CLOUDFLARE_API_TOKEN`）——logic.ts 重構經 app pool 行為測試實測覆蓋（非僅 tsc）；bindings 測試修前以 stash 對照乾淨 HEAD 確認存量失敗（非本輪引入）；pick-python 實測輸出 python3（tomllib ✓）。CI runner 離線中——push 後 [MUST] 確認 runner 恢復後首跑綠。**操作者後續**：本地 `.env` 清 `SLACK_*` 陳年 key＋`seal.sh` reseal（域 A）。
+
 ### [2026-09-04] CI workflow 環境前置補齊——check-env.sh preflight + engines 宣告（第三個 gate 的環境誠實化）
 
 **目標**：補齊第三個 gate 的環境前置——CI runner 恢復在錯環境（node 20 / glibc < 2.32）時，失敗提前到第一步並給可行動訊息，而非 make ci 噴難懂 GLIBC/engines 錯。pre-push（91d9e10）與 smoke（a4894ee）已有探測，唯 CI 缺席。
