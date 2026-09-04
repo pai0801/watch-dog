@@ -22,3 +22,5 @@
 
 全新 Worker 第一次 deploy 前不能設 secret，`wrangler.jsonc secrets.required` 會擋首次部署。流程：
 暫時移除 `secrets` 區塊 → `wrangler deploy` → `wrangler secret put ADMIN_TOKEN`（值 file-sourced，見 10 §6.0）→ 加回區塊 → redeploy。
+
+**環境前置（2026-09-04 實測）**：wrangler 4.129 需 **Node.js ≥ 22**——本 dev 主機 node 20.20 跑不動任何 wrangler 指令（`wrangler types`/`deploy` 都會擋）。首次部署 [MUST] 在 node ≥ 22 環境執行（nvm/容器皆可）；部署後 runtime 為 workerd，不受主機 node 版本影響。CI（self-hosted 同機）的 `make ci` 不含 wrangler 呼叫，不受影響。

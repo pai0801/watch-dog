@@ -8,7 +8,7 @@
 ## 舊債（存量，排程處理）
 
 > 2026-09-04 協議補完輪後狀態：16 項中 14 項已清償（#9–#16 見 88b0a3c / 3ad4bf7；#1–#6 見本輪 docs/CSS commit）。
-> 剩 #7/#8 屬「需外部盤點/操作者決策」型債，保留 open 流動。
+> 剩 #7 為「需操作者決策」型債（DB settings 遷移完成後刪 env fallback），保留 open 流動。#8 已於盤點後清償。
 
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@
 | 5 | `01-CLAUDE.md` §10 SEO 鐵三角 | ~~無注記~~ | §10 加 N/A 注記（noindex 監控工具） | **已清償 2026-09-04**（本輪） |
 | 6 | `01-CLAUDE.md` §14 UI 設計原則 | ~~無注記~~ | 標 legacy accepted；新頁面遵循 §14 精神 | **已清償 2026-09-04**（本輪） |
 | 7 | `src/services/settings.ts` env-fallback（`SLACK_*` 環境變數）與 `.dev.vars.example` 的 `SLACK_*` | 雙真相來源：DB `settings` 表為主、env 為 legacy fallback（`.portability.toml` 已列 `optional_worker`） | 標 deprecated；訂移除時機（e.g. 兩個專案遷移到 DB settings 後刪 fallback 代碼） | open |
-| 8 | `src/routes/api.ts` legacy `X-Project-Token` header | 新舊並存的接受面（Bearer 為主）；舊客戶端相依 | 盤點仍在用 legacy header 的上報端，全數遷移後移除 | open |
+| 8 | `src/routes/api.ts` legacy `X-Project-Token` header | ~~新舊並存的接受面~~ | 跨 repo 盤點零使用者 → 移除（f4b47cd，Bearer-only；測試改 401 拒絕鎖死） | **已清償 2026-09-04**（f4b47cd） |
 | 9 | `src/index.ts` `assertBindings` 包裝層 | 無 app-pool 直接單元測試（§I guard 驗證接線存在，非執行路徑行為） | ~~補 workerd-pool 測試~~ → `tests/bindings.test.ts`（fetch entry throw + 單元層；app pool 本機 glibc 限制由 CI runner 執行） | **已清償 2026-09-04**（88b0a3c） |
 | 10 | `tests/guards/portability.test.ts::§B` `scanPrepareArg` | ~~deslop 實測漏攔四向量~~ | 主規則「.prepare( 引數非字面值開頭即違規」＋四向量 fixture 鎖定（D38）；SQL 算術誤報以引號貼鄰樣式排除 | **已清償 2026-09-04**（88b0a3c） |
 | 11 | `tests/guards/portability.test.ts::§A` src 掃描 | ~~regex 只抓帶引號鍵形態~~ | 加無引號鍵樣式 `\bKEY\s*=\s*['"\`]\S`（帶/無引號鍵雙形態） | **已清償 2026-09-04**（88b0a3c） |
