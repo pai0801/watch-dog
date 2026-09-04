@@ -2,15 +2,21 @@
 # 安裝 raw git hooks（pre-commit framework 不可用時的替代；bootstrap.sh 備援路徑）。
 # pre-commit = §L/§M + secrets-archive（<5s）；pre-push = npm test 全量 gatekeeper。
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(git rev-parse --show-toplevel)"
 
-cat > .git/hooks/pre-commit <<'EOF'
+# §L/§M 需 tomllib（py≥3.11）；系統 python3 可能更舊——挑可用的。
+PY=python3
+if ! "$PY" -c "import tomllib" >/dev/null 2>&1; then
+  if command -v python3.12 >/dev/null 2>&1; then PY=python3.12; fi
+fi
+
+cat > .git/hooks/pre-commit <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "\$(git rev-parse --show-toplevel)"
 echo "[pre-commit] §L/§M + secrets-archive 檢查"
-python3 scripts/check-manifest-gitignore.py
-python3 scripts/check-secrets-coverage.py
+$PY scripts/check-manifest-gitignore.py
+$PY scripts/check-secrets-coverage.py
 bash secrets-archive/pre-commit-check.sh
 echo "[pre-commit] ✓"
 EOF

@@ -43,7 +43,7 @@ collect_files() {
 
 # ---------- --check (seal-sync) ----------
 if [ "${1:-}" = "--check" ]; then
-  PASS="$(get_pass 2>/dev/null)" || { echo "WARN: seal-sync skipped (no password)"; exit 0; }
+  PASS="$(get_pass </dev/null 2>/dev/null)" || { echo "WARN: seal-sync skipped (no password)"; exit 0; }
   [ -f "$ARCHIVE" ] || { echo "FAIL: $ARCHIVE missing (run seal.sh first)"; exit 1; }
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   if ! 7z x "-p$PASS" -mhe=on -o"$tmp" "$ARCHIVE" >/dev/null 2>&1; then

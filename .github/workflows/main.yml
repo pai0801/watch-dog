@@ -16,6 +16,11 @@ jobs:
       - name: Install Dependencies
         run: make install
 
+      - name: Secrets Baseline Freshness (detect-secrets)
+        run: |
+          python3 -m pip install --user detect-secrets==1.5.0 --quiet
+          python3 -m detect_secrets scan --baseline .secrets.baseline
+
       - name: Lint & Test (make ci)
         run: make ci
 
