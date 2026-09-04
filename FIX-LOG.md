@@ -7,9 +7,10 @@
 
 ### [2026-09-04] CI workflow 環境前置補齊——check-env.sh preflight + engines 宣告（第三個 gate 的環境誠實化）
 
-**問題**：三個 gate 中 pre-push（91d9e10）與 smoke（a4894ee）已環境探測，唯 CI workflow 無任何前置——runner 恢復在 node 20 / glibc < 2.32 容器時，`make ci` 會在 npm install（wrangler 4.129 engines）或 app pool（workerd）噴難懂錯誤，且 `package.json` 無 engines 宣告。
-**原因**：環境限制是本 session 才實測確立的（node 22 前置、glibc 2.32 斷點），workflow 寫於此之前；「同型 bug 成群」教訓的第三處呼叫點。
-**修復**：① `scripts/check-env.sh`（hard-fail preflight：node ≥ 22 + glibc ≥ 2.32，可行動訊息指路 SECRETS.md；ldd 缺失時 ⚠ 手動確認）；② workflow 第一步 `Env Preflight`；③ `package.json` engines node >=22。CI 需全量環境故 hard-fail（與開發機降級模式互補，腳本註解明示分工）。
+**目標**：補齊第三個 gate 的環境前置——CI runner 恢復在錯環境（node 20 / glibc < 2.32）時，失敗提前到第一步並給可行動訊息，而非 make ci 噴難懂 GLIBC/engines 錯。pre-push（91d9e10）與 smoke（a4894ee）已有探測，唯 CI 缺席。
+**原因**：環境限制是本 session 才實測確立的（node 22 前置、glibc 2.32 斷點），workflow 寫於此之前；「同型 bug 成群」教訓的第三處呼叫點；package.json 亦無 engines 宣告。
+**預期結果**：`scripts/check-env.sh`（hard-fail：node ≥ 22 + glibc ≥ 2.32，訊息指路 SECRETS.md；ldd 缺失 ⚠ 手動確認）成為 workflow 第一步；engines node >=22 宣告。CI [MUST] 全量環境故 hard-fail，與開發機降級模式互補（腳本註解明示分工）。
+**範圍**：`scripts/check-env.sh`（新增）、`.github/workflows/main.yml`、`package.json`。無 app 碼、無 schema、無 secret 變動。
 **驗證**：本機（node 20.20.2 + glibc 2.31）實測 rc=1 兩訊息齊全；mock node22+glibc2.35 stub 驗 ✓ 成功路徑 rc=0；開發中修掉兩個自產 bug——`ldd | head` pipefail SIGPIPE 提前炸（141）、非數字 NODE_MAJOR fail-open（mock stub 揭露）→ fail-closed 加固；tsc ✓ eslint ✓ guards 21/21 ✓。
 
 
