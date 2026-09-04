@@ -20,9 +20,12 @@ test-guards:
 	npm run test:guards
 
 # CI 全量 gate（GitHub Actions self-hosted workflow + pre-push hook 同組合，09 §1.3）。
+# §L/§M 需 tomllib（py≥3.11）；系統 python3 可能更舊——挑可用的。
+PY ?= $(shell python3 -c 'import tomllib' 2>/dev/null && echo python3 || echo python3.12)
+
 ci: lint test
-	python3 scripts/check-manifest-gitignore.py
-	python3 scripts/check-secrets-coverage.py
+	$(PY) scripts/check-manifest-gitignore.py
+	$(PY) scripts/check-secrets-coverage.py
 	@echo "CI passed ✅"
 
 smoke:
