@@ -30,7 +30,7 @@ get_pass() {
 }
 
 [ -f "$ARCHIVE" ] || { echo "no archive: $ARCHIVE" >&2; exit 1; }
-PASS="$(get_pass)"
+PASS="$(get_pass </dev/null 2>/dev/null)" || { echo "ERROR: no password available (set ENV_SECRET_PASS or ~/.config/env-tools.env)" >&2; exit 1; }
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 if ! 7z x "-p$PASS" -mhe=on -o"$tmp" "$ARCHIVE" >/dev/null 2>&1; then

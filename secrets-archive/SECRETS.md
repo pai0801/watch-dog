@@ -9,7 +9,7 @@
 | Secret 名稱 | 用途（一句話） | 來源（服務/帳號） | 被誰使用（檔案/服務） | 換掉的影響範圍 | 上次更換 |
 |---|---|---|---|---|---|
 | `ADMIN_TOKEN` | `/admin/*` Basic-Auth 密碼（username 任意） | 自產（`openssl rand -hex 24`） | `src/middleware/adminAuth.ts`、`src/lib/bindings.ts`（assertBindings fail-fast）、`wrangler.jsonc secrets.required`（Layer 1 擋部署）、`.dev.vars`（dev） | 換掉後所有已存瀏覽器 Basic 憑證即失效，重新輸入新密碼即可；設定後需 redeploy 才傳播。缺值 = 部署被擋（Layer 1）+ runtime 全站 fail-fast（Layer 2） | 2026-09-04（dev 值入庫；prod 首次部署時設定） |
-| ~~`SLACK_API_TOKEN`~~（**已移除 2026-09-04**，TODO-REVIEW #7） | ~~Slack 警報發送 token 的 env fallback~~ | Slack workspace app（Bot User OAuth Token） | ~~`src/lib/bindings.ts`（trySlackApiToken）、`src/services/settings.ts`（getEnvWithFallback）~~——移除時系統**從未部署**，零部署受影響 | 現行真相源 = **D1 `settings` 表**（`/admin` 設定，`getEffectiveSettings` 讀取），env 途徑已不存在 | env fallback 已於首次部署前移除（DB settings 值由操作者在 /admin 管理） |
+| ~~`SLACK_API_TOKEN`~~（**已移除 2026-09-04**，TODO-REVIEW #7） | ~~Slack 警報發送 token 的 env fallback~~ | Slack workspace app（Bot User OAuth Token） | ~~`src/lib/bindings.ts`（trySlackApiToken）、`src/services/settings.ts`（getEnvWithFallback）~~——移除時系統**從未部署**，零部署受影響 | 現行真相源 = **D1 `settings` 表**（`/admin` 設定，`getAllSettings` 讀取），env 途徑已不存在 | env fallback 已於首次部署前移除（DB settings 值由操作者在 /admin 管理） |
 
 ## Deploy-time shell 憑證（非 worker runtime binding，不入 `[secrets].worker`）
 

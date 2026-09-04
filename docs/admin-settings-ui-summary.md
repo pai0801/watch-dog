@@ -43,8 +43,8 @@ updateSetting(db: D1Database, key: string, value: string): Promise<boolean>
 // 批量更新 Slack 設置
 updateSlackSettings(db: D1Database, settings: SlackSettings): Promise<boolean>
 
-// 獲取設置（帶環境變量回退）
-getEnvWithFallback(db: D1Database, env: Env): Promise<AllSettings>
+// 獲取設置（D1 settings 表為單一真相源；env fallback 已於 2026-09-04 首次部署前移除）
+getAllSettings(db: D1Database): Promise<AllSettings>
 ```
 
 ### 3. 告警服務更新
