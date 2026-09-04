@@ -20,15 +20,15 @@
 
 ### R3 Artifact 完整
 
-- 042c8d2（#7 移除：9 檔+22 測試呼叫點）、ad44edf（passthrough 合併+本 cycle 更正）；3096887（restore.sh 同型 hang 修復+#7 殘留引用清理）、0ff3d7d（bootstrap node requires 20→22+環境矩陣）、a4894ee（portability-smoke 同款降級）；TODO-REVIEW 16 項全數清償（劃記+日期+處置保留）；FIX-LOG 兩個新 entry 四欄位齊。
+- 042c8d2（#7 移除：9 檔+22 測試呼叫點）、ad44edf（passthrough 合併+本 cycle 更正）；3096887（restore.sh 同型 hang 修復+#7 殘留引用清理）、0ff3d7d（bootstrap node requires 20→22+環境矩陣）、a4894ee（portability-smoke 同款降級）、9348e8b+942b607（CI preflight：check-env.sh hard-fail+engines，第三 gate 補齊；D19 攔下自己 FIX-LOG 格式錯誤）；TODO-REVIEW 16 項全數清償（劃記+日期+處置保留）；FIX-LOG 三個新 entry 四欄位齊。
 - 環境現實記錄：SECRETS.md（node22 免 sudo recipe+runner 離線）、AGENTS/CLAUDE（環境限制表）、bootstrap/smoke（workerd/node 探測註解）。
 - Fresh-clone 重建承諾首次端到端實測（[1]✓ [2]types✓ [3]fail-fast✓ [4]glibc 預期敗；guards/eslint/tsc 於 fresh clone 全綠）。
 
 ### R4 驗證證據
 
 - #7 移除：tsc ✓ eslint ✓ guards 21/21 ✓（§F/§G/§H 三方同步 optional=[] ≡ required=[ADMIN_TOKEN]）§L/§M ✓ baseline ✓；app pool 行為補驗留 runner 恢復後 CI 首跑（與 #9 同批，FIX-LOG 記錄）。passthrough 合併：tsc ✓ eslint ✓。
-- 環境誠實化全網對齊：pre-push（91d9e10）/ smoke（a4894ee）workerd 探測降級實測 rc=0 + ⚠ 如實輸出；bootstrap（0ff3d7d）node≥22 WARN 如實觸發；restore（3096887）無密碼 41ms fail-fast（修前永 hang）。
-- 全程 19 commits 推送 origin/main（d8a6c9c..4f01580，採用協議 session 之後的全部），working tree clean。
+- 環境誠實化全網對齊：pre-push（91d9e10）/ smoke（a4894ee）workerd 探測降級實測 rc=0 + ⚠ 如實輸出；bootstrap（0ff3d7d）node≥22 WARN 如實觸發；restore（3096887）無密碼 41ms fail-fast（修前永 hang）；CI preflight（9348e8b）本機 rc=1 雙訊息、mock node22+glibc2.35 成功路徑 rc=0。
+- 全程 21 commits 推送 origin/main（d8a6c9c..942b607，採用協議 session 之後的全部），working tree clean。
 
 ### R5 經驗記錄
 
