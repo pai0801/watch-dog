@@ -481,3 +481,42 @@ it('D37: each labeled volatile metric has ≤1 distinct value across current-sta
   expect(drifts, 'volatile-number drift (D37):\n' + drifts.join('\n')).toEqual([]);
 });
 ```
+
+### D38 — Non-vacuous guard proof（meta,anti-vacuous-PASS）
+
+> 每個 guard test [MUST] 帶兩個 marker comment:**`NON-VACUOUS`**(證掃 >0 artifact)+ **`NEGATIVE`**(證注入違規會 fail)。
+> 缺任一 → D38 fail(rules repo dogfood:`scripts/validate-guard-nonvacuous.sh`)。
+> consumer vitest/pytest/bash template + 詳見 `references/guard-nonvacuous-proof.md`。
+
+### D39 — Dead-param interface-shrink guard（tsconfig `noUnusedParameters`）
+
+> `14-DESIGN-PRINCIPLES.md` §2.2 介面收縮的機械化落地。Python 側 = ruff ARG001/ARG002
+> （見 `../python/references/GUARD-TEMPLATES.md §D39`；llm-task-web 試點：app 碼 8 死參數全真、零誤報）。
+> TS 無具名 kwargs → kwargs-mirror 問題不存在，`_` 前綴覆蓋全部——**開了幾乎零摩擦**，
+> 但多數專案只開 `noUnusedLocals` 沒開這個。
+
+**Config（tsconfig.json compilerOptions）：**
+
+```jsonc
+{
+  "compilerOptions": {
+    "noUnusedLocals": true,
+    "noUnusedParameters": true  // D39；TS 內建慣例：`_` 前綴參數自動豁免
+  }
+}
+```
+
+**修法分流：** app 碼死參數 → 刪（14 §2.2 同批刪）；接口契約 handler（Hono `(c)` context 未用端點）→ `_c` 前綴。[NEVER] 用 `@ts-ignore`/`@ts-expect-error` 壓 D39 finding。
+
+**NON-VACUOUS guard test（防 config 靜默鏽蝕）：**
+
+```ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("D39: noUnusedParameters enabled", () => {
+  // NON-VACUOUS: 讀真 tsconfig；NEGATIVE: 移除 flag 或改 false → fail
+  const raw = readFileSync("tsconfig.json", "utf8");
+  expect(/"noUnusedParameters"\s*:\s*true/.test(raw)).toBe(true);
+});
+```

@@ -30,7 +30,7 @@
 
 Run:
 ```bash
-export CLOUDFLARE_API_TOKEN="BqffMl9dB5pYCYMjqNfr5hgbx01RGXnbk5_rNO9R"
+export CLOUDFLARE_API_TOKEN="<REDACTED 2026-09-04 — 此文件曾明文洩漏現役 token（detect-secrets baseline 掃描發現）；值已從工作樹移除，git 歷史仍有舊值 → 舊 token [MUST] 於 CF dashboard 作廢輪替（見 secrets-archive/SECRETS.md 與 FIX-LOG 2026-09-04 條目）>"
 export CLOUDFLARE_ACCOUNT_ID="c8be0aed8df53afd214770b0130ec55e"
 npx wrangler d1 create watch-dog-db
 ```

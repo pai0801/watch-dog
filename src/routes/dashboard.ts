@@ -2,7 +2,6 @@
 // Public monitoring dashboard (GET /).
 
 import { Hono } from 'hono';
-import { html } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { Layout } from '../views/layout';
 import { DashboardContent, ErrorState, ProjectGrid } from '../views/dashboard';
@@ -60,18 +59,18 @@ dashboard.get('/', async (c) => {
 
     // HTMX request: only return the project grid (refresh stats via page reload)
     if (isHtmx) {
-      return c.html(projectGrid as any);
+      return c.html(projectGrid);
     }
 
     // Full page: stats + grid
-    return c.html(Layout({ content: DashboardContent(stats, projectGrid) }) as any);
+    return c.html(Layout({ content: DashboardContent(stats, projectGrid) }));
   } catch (error) {
     console.error('Dashboard error:', error);
     if (isHtmx) {
-      return c.html(ErrorState('Error loading dashboard', 'Unable to fetch project data. Please try again.') as any);
+      return c.html(ErrorState('Error loading dashboard', 'Unable to fetch project data. Please try again.'));
     }
     return c.html(
-      Layout({ content: ErrorState('Error loading dashboard', 'Unable to fetch project data. Please try again.') }) as any
+      Layout({ content: ErrorState('Error loading dashboard', 'Unable to fetch project data. Please try again.') })
     );
   }
 });

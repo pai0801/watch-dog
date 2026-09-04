@@ -43,7 +43,7 @@ beforeEach(async () => {
 
 describe('scheduled handler', () => {
   it('marks stale heartbeat checks dead and sends a critical Slack alert', async () => {
-    const project = await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
     await seedCheck('svc', {
       id: 'svc:stale',
       name: 'stale',

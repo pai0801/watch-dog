@@ -24,5 +24,18 @@
 
 	"observability": {
 		"enabled": true
+	},
+
+	// Layer 1 deploy-time secret validation (10-SECRETS-CONTRACT §5.1) — kept in
+	// sync with .portability.toml [secrets].worker and src/lib/bindings.ts
+	// (guards §F/§G check this). Values are NEVER written here:
+	// `wrangler secret put <NAME>` (file-sourced, agents never touch plaintext).
+	//
+	// ⚠️ #14258 first-deploy trap: a brand-new Worker cannot have secrets set
+	// before its first deploy, and secrets.required blocks that deploy. First
+	// deploy flow: temporarily remove this "secrets" block → wrangler deploy →
+	// wrangler secret put ADMIN_TOKEN → add the block back (10 §5.1).
+	"secrets": {
+		"required": ["ADMIN_TOKEN"]
 	}
 }

@@ -10,7 +10,9 @@ REPO_ROOT="$(pwd)"
 ARCHIVE="$REPO_ROOT/secrets-archive/env.7z"
 CHECKOUT="$(basename "$REPO_ROOT")"
 
-SECRET_PATTERNS=(".env*" ".dev.vars" "wrangler.toml" "wrangler.jsonc" "wrangler.*.toml" "wrangler.*.jsonc")
+# wrangler.toml/jsonc 本體是 tracked 公開配置(值走 wrangler secret put),不入 seal;
+# 只封「機器本地值檔」:.env*/.dev.vars 與 wrangler env 變體(.example/.bak/.test 除外)。
+SECRET_PATTERNS=(".env*" ".dev.vars" "wrangler.*.toml" "wrangler.*.jsonc")
 EXCLUDE_RE='(\.example|\.bak|\.test)(\..*)?$'
 
 get_pass() {

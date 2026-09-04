@@ -8,7 +8,7 @@ import { html } from 'hono/html';
  * @param title - Page title
  * @param content - Main content to render
  */
-export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: string; content: any }) => html`
+export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: string; content: ReturnType<typeof html> }) => html`
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>

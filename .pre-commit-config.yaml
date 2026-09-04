@@ -1,0 +1,48 @@
+# 本地品質把關（與雲端 CI 並行：本 repo 有 GitHub remote，self-hosted runner workflow 在
+# .github/workflows/main.yml；pre-commit 是 commit/push 當下的秒級回饋層）。
+# 安裝：pre-commit install --install-hooks && pre-commit install --hook-type pre-push --install-hooks
+# （bootstrap.sh 自動跑；pre-commit framework 不可用時 scripts/install-git-hooks.sh 裝 raw hooks）
+#   pre-commit stage：§L/§M guards＋secrets-archive 檢查（秒級，<5s 合約）。
+#   pre-push   stage：npm test 全量（app 60 + guards §A–§K/D18–D21）＝ gatekeeper。
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+        exclude: '^\.dev\.vars' # 非 JSON；.dev.vars 是 KEY=VALUE
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: watch-dog-manifest-guard
+        name: §L manifest-gitignore-coherence (pre-commit + pre-push)
+        entry: python3 scripts/check-manifest-gitignore.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+      - id: watch-dog-secrets-coverage
+        name: §M code↔env secrets-coverage parity (pre-commit + pre-push)
+        entry: python3 scripts/check-secrets-coverage.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+      - id: secrets-archive-check
+        name: secrets-archive (gitignore + plaintext + seal-sync)
+        entry: bash secrets-archive/pre-commit-check.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: watch-dog-test
+        name: vitest 全量（app+guards 雙 pool，pre-push gatekeeper）
+        entry: npm test
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -178,7 +178,7 @@ export async function findDeadChecks(
       AND (c.last_seen + c.interval + c.grace) < ?`
     )
     .bind(now)
-    .all();
+    .all<Check & { project_name: string; maintenance_until: number; token: string; created_at: number }>();
 
-  return result.results as any;
+  return result.results;
 }

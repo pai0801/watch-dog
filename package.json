@@ -5,7 +5,10 @@
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy --minify",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
+		"test": "npm run test:app && npm run test:guards",
+		"test:app": "vitest run",
+		"test:guards": "vitest run --config vitest.guards.config.ts",
+		"lint": "eslint .",
 		"cf-typegen": "wrangler types --env-interface CloudflareBindings"
 	},
 	"dependencies": {
@@ -13,11 +16,16 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "^1.1.4",
-		"@cloudflare/workers-types": "^4.20260131.0",
+		"@cloudflare/workers-types": "^5.20260904.1",
+		"@eslint/js": "^10.0.1",
 		"@msw/cloudflare": "^0.0.1",
+		"eslint": "^10.9.1",
+		"fast-glob": "^3.3.3",
+		"globals": "^17.12.0",
 		"msw": "^2.15.0",
 		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.69.0",
 		"vitest": "^4.1.11",
-		"wrangler": "^4.61.1"
+		"wrangler": "^4.129.0"
 	}
 }

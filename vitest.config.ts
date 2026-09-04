@@ -15,6 +15,8 @@ export default defineConfig({
   ],
   test: {
     include: ['tests/**/*.test.ts'],
+    // guards 是 Node-pool 檔案掃描（node:fs），不在 workerd 跑——見 vitest.guards.config.ts
+    exclude: ['tests/guards/**'],
     setupFiles: ['tests/setup.ts'],
   },
 });

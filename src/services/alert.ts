@@ -13,6 +13,14 @@ import { getEnvWithFallback } from './settings';
  */
 export type AlertLevel = 'critical' | 'recovery' | 'warning';
 
+/** Slack Block Kit block — 本檔使用的最小結構（header/section/context；完整 schema 見 Slack API）。 */
+interface SlackBlock {
+  type: string;
+  text?: { type: string; text: string; emoji?: boolean };
+  fields?: Array<{ type: string; text: string }>;
+  elements?: Array<{ type: string; text: string }>;
+}
+
 /**
  * Slack message payload
  */
@@ -107,7 +115,7 @@ export async function sendSlackAlert(db: D1Database, env: Env, data: SlackAlertD
   const style = STYLE_MAP[level];
 
   // Build Block Kit payload
-  const blocks: any[] = [
+  const blocks: SlackBlock[] = [
     // Header with emoji and title
     {
       type: 'header',

@@ -13,6 +13,7 @@ import dashboardRoutes from './routes/dashboard';
 import apiRoutes from './routes/api';
 import adminRoutes from './routes/admin';
 import { scheduled } from './cron';
+import { assertBindings } from './lib/bindings';
 
 const app = new Hono<{ Bindings: AppBindings }>();
 
@@ -21,6 +22,9 @@ app.route('/', apiRoutes);
 app.route('/', adminRoutes);
 
 export default {
-  fetch: app.fetch,
+  fetch: (request: Request, env: AppBindings, ctx: ExecutionContext): Response | Promise<Response> => {
+    assertBindings(env); // per-request fail-fast (Workers have no startup hook)
+    return app.fetch(request, env, ctx);
+  },
   scheduled,
 };

@@ -12,7 +12,7 @@ import {
 } from './utils';
 
 const TOKEN = 'test-token-1234567890';
-const authHeaders = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+// auth headers are inlined per-call below (put/post take a headers arg)
 
 const put = (url: string, body: unknown, headers: Record<string, string> = {}) =>
   SELF.fetch(`http://localhost${url}`, {

@@ -37,7 +37,7 @@ export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c,
     return challenge(c);
   }
 
-  let password = '';
+  let password: string;
   try {
     const decoded = atob(header.slice(6));
     const sep = decoded.indexOf(':');

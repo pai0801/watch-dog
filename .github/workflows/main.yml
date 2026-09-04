@@ -1,0 +1,32 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  ci:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: make install
+
+      - name: Lint & Build & Test
+        run: make ci
+
+      - name: Run Backup
+        if: success()
+        run: . /etc/default/ci-backup && python3 /usr/local/bin/backup_all_repos.py
+
+      - name: Cleanup Workspace
+        if: always()
+        run: |
+          make clean 2>/dev/null || true
+          # Self-hosted runner: workspace is re-cloned each run.
+          # Fail-safe enforces the disk limit even if make clean fails.
+          rm -rf ./* ./.[!.]* 2>/dev/null || true

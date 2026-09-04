@@ -61,11 +61,11 @@ admin.get('/admin', async (c) => {
       };
     });
 
-    return c.html(Layout({ title: 'Admin - Watch-Dog Sentinel', content: AdminPage(settings, projects, projectsWithChecks) }) as any);
+    return c.html(Layout({ title: 'Admin - Watch-Dog Sentinel', content: AdminPage(settings, projects, projectsWithChecks) }));
   } catch (error) {
     console.error('Admin error:', error);
     return c.html(
-      Layout({ title: 'Admin - Watch-Dog Sentinel', content: ErrorState('Error loading admin', 'Unable to fetch data. Please try again.') }) as any
+      Layout({ title: 'Admin - Watch-Dog Sentinel', content: ErrorState('Error loading admin', 'Unable to fetch data. Please try again.') })
     );
   }
 });
@@ -103,7 +103,7 @@ admin.post('/admin/settings/slack', async (c) => {
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
           Failed to save Slack settings. Please try again.
         </div>
-      ` as any);
+      `);
     }
 
     // Update silence period separately and check for success
@@ -114,7 +114,7 @@ admin.post('/admin/settings/slack', async (c) => {
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
           Failed to save silence period. Please try again.
         </div>
-      ` as any);
+      `);
     }
 
     // Return success message with HTMX redirect
@@ -123,14 +123,14 @@ admin.post('/admin/settings/slack', async (c) => {
         Settings saved successfully!
       </div>
       <script>htmx.trigger(document.body, 'reloadAdmin'); setTimeout(() => htmx.ajax('GET', '/admin', {target: 'body', swap: 'outerHTML'}), 500);</script>
-    ` as any);
+    `);
   } catch (error) {
     console.error('Settings save error:', error);
     return c.html(html`
       <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
         Error saving settings. Please try again.
       </div>
-    ` as any);
+    `);
   }
 });
 
@@ -274,7 +274,7 @@ admin.get('/admin/checks/:checkId/edit', async (c) => {
       .first<Check>();
 
     if (!check) {
-      return c.html(html`<div>Check not found</div>` as any);
+      return c.html(html`<div>Check not found</div>`);
     }
 
     return c.html(html`
@@ -324,10 +324,10 @@ admin.get('/admin/checks/:checkId/edit', async (c) => {
     }
   </script>
 </div>
-    ` as any);
+    `);
   } catch (error) {
     console.error('Check edit error:', error);
-    return c.html(html`<div>Error loading check</div>` as any);
+    return c.html(html`<div>Error loading check</div>`);
   }
 });
 
@@ -382,7 +382,7 @@ admin.post('/admin/checks/:checkId', async (c) => {
     return c.redirect('/admin');
   } catch (error) {
     console.error('Check update error:', error);
-    return c.html(html`<div>Error updating check</div>` as any);
+    return c.html(html`<div>Error updating check</div>`);
   }
 });
 
@@ -425,7 +425,7 @@ admin.post('/admin/projects/new-dialog', async (c) => {
     }
   </script>
 </div>
-  ` as any);
+  `);
 });
 
 /**
@@ -450,7 +450,7 @@ admin.post('/admin/projects/new', async (c) => {
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
           Missing required fields
         </div>
-      ` as any);
+      `);
     }
 
     // Project ids are interpolated into URLs, HTML attributes and check ids —
@@ -461,7 +461,7 @@ admin.post('/admin/projects/new', async (c) => {
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
           Invalid Project ID: use 1-63 chars of lowercase letters, numbers or hyphens (must start with a letter or number)
         </div>
-      ` as any);
+      `);
     }
 
     // Check if project already exists
@@ -475,7 +475,7 @@ admin.post('/admin/projects/new', async (c) => {
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
           Project ID already exists
         </div>
-      ` as any);
+      `);
     }
 
     // Create the project
@@ -518,7 +518,7 @@ admin.post('/admin/projects/new', async (c) => {
       <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
         Error creating project
       </div>
-    ` as any);
+    `);
   }
 });
 

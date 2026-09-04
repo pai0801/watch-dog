@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { network } from './network';
 import { processCheckResult, findDeadChecks } from '../src/services/logic';
-import type { Check, Project } from '../src/types';
+import type { Check } from '../src/types';
 import {
   DB,
   TEST_ENV,
@@ -22,15 +22,6 @@ import {
 } from './utils';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
-
-const makeProject = (overrides: Partial<Project> = {}): Project => ({
-  id: 'test-project',
-  token: 'test-token-1234567890',
-  display_name: 'Test Project',
-  maintenance_until: 0,
-  created_at: nowSec(),
-  ...overrides,
-});
 
 let slackCalls: string[] = [];
 

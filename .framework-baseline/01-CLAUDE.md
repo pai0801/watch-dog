@@ -25,16 +25,15 @@
 
 > **本表是框架的「完整 Cloudflare stack」範本。複製進專案後 [MUST] 依實際棧調整**——多數消費者只用一部分（如 Hono + 原生 HTML、或純 Pages Functions + KV），[NEVER] 照搬本表假裝採用整套。
 > 本檔的 **universal prohibitions（§4–§6、§13–§15）是不可談判 core**（繼承、不刪）；§1 技術棧則是你的、可調。採用模型見 `rules/CLAUDE.md` Step 2（copy + adjust + merge-sync）。
-> **watch-dog 真實棧**（下表已調整）：Hono 4 單一 Worker + D1 原生 prepared statements + 每分鐘 Cron，無 Astro/Svelte/Drizzle/R2/KV。
 
 | 技術 | 技術棧 | 版本 |
 |---|---|---|
 | Runtime | Cloudflare Workers / Pages | 最新 wrangler |
-| Framework | Hono 4（routing/middleware + hono/html 視圖,無 Astro/Svelte） | package.json |
-| Database | D1 + 原生 prepared statements（本專案未用 ORM;見 §3 注記） | D1 |
-| Storage | D1（關聯） | Cloudflare 平台 |
-| Testing | Vitest 4 + @cloudflare/vitest-plugin + @msw/cloudflare | Vitest 4.x |
-| Linting | ESLint 10 (flat config) + custom rules | flat config |
+| Framework | Astro 6 (SSR) + Hono 4 (routing/middleware) + Svelte 5 (UI, runes only) | package.json engines |
+| ORM | Drizzle (SQLite dialect, D1) | ^0.30.0 |
+| Storage | D1 (關聯) + KV (快取/session) + R2 (物件/圖片) | Cloudflare 平台 |
+| Testing | Vitest + @cloudflare/vitest-pool-workers | Vitest 2.x |
+| Linting | ESLint 9 (flat config) + custom rules | flat config |
 
 [MUST] 寫任何程式碼前先檢查 `package.json` 的版本釘選。
 
@@ -42,7 +41,7 @@
 
 ## 2. 邊緣架構原則
 
-**Hono 單一 Worker**（本專案無 Astro 層）：Hono middleware 處理 auth / security filtering；路由掛載於 `src/routes/`（api / admin / dashboard）。
+**Hono -> Astro 單一 Worker 連鎖**：Hono middleware 處理 rate limiting / tenant blocking / security filtering；未攔截的請求 `next()` 傳給 Astro SSR。
 
 | 規則 | 指令 |
 |---|---|
@@ -54,11 +53,6 @@
 ---
 
 ## 3. Drizzle ORM 強制規範
-
-> **本專案注記**：watch-dog 未使用 Drizzle —— 全部查詢用 D1 prepared
-> statements（`env.DB.prepare(...).bind(...)`）。本節 Drizzle 條目僅供框架
-> 相容保留;實際遵循的是「參數化查詢、禁止字串拼接 SQL、WHERE 帶 project
-> 過濾」等同等規範。
 
 | 規則 | 指令 | 說明 |
 |---|---|---|
@@ -135,14 +129,6 @@ Vitest 測試掃描源碼模式違規。每個 guard 有 `MAX_*` 常數，只能
 ---
 
 ## 9. 元件邊界與資料隔離
-
-> **watch-dog 適配（11-MULTI-TENANT 標註，`~/Code/rules/11-MULTI-TENANT-READINESS.md` §1.2 [MUST]）**
-> 部署策略選擇 = **單一共享部署**（單一 Worker + 單一 D1，靠查詢約束隔離）。
-> watch-dog 是**單操作者系統、非多租戶**：下表 Astro/Svelte/tenantId 等條目為框架範本
-> （供已多租戶 Astro 棧適用），對本專案 N/A——實際的資料隔離是 **per-project scoping**：
-> pulse 上報與查詢一律經 project token 解析出 `project_id` 後過濾（`timingSafeEqual`
-> 防時序攻擊，見 `src/routes/api.ts`），admin 採單操作者 Basic Auth。多租戶感知升級時
-> 改遵循 `PLATFORM-CONTRACTS.md`（rules 11 對照表），[NEVER] 降級回 rules 11 底線。
 
 | 邏輯類型 | 位置 |
 |---|---|
@@ -249,9 +235,9 @@ CSS：Admin 元件 [MUST] import CSS 檔，[NEVER] 依賴 Svelte scoped `<style>
 | 專案特定測試 / 環境變數 | 分層 + Runtime Gateway 邊界 |
 | 自定義 ESLint 規則 | 核心強制規則級別 |
 
-[NEVER] 重寫框架核心規則、修改 ESLint error 級別、繞過 architecture guards。
-
 > **澄清（解除舊矛盾）**：「核心技術棧」不再是「不可擴展」——範本棧（§1）是本地可調起點，消費者宣告各自真實棧；不可擴展的是**禁令與架構不變量**，不是某一組套件版本。
+
+[NEVER] 重寫框架核心規則、修改 ESLint error 級別、繞過 architecture guards。
 
 ---
 

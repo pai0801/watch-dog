@@ -1,20 +1,70 @@
-# .portability.toml — rules/09-PORTABILITY (upgraded: script-entry + grep-able touchpoints)
-# watch-dog
+# .portability.toml — rules/09-PROJECT-PORTABILITY manifest (watch-dog)
+# Cloudflare Worker: Hono + D1 (native prepared statements) + per-minute cron.
+# Adopted 2026-07-29 (rules@19f9ff2); contract completed + merge-synced to rules HEAD 2026-09-04.
+
 [machine_local]
-files = [".env"]
+# 顯式列示 = universal 預設 glob 的明示形式（§L guard 雙向 coherence）。
+# wrangler.jsonc 是 committed（僅含 D1 database_id，非 secret）→ 不在此。
+files = [".env", ".dev.vars"]
 
 [secrets]
-worker = []
-python_env = ["CLOUDFLARE_API_TOKEN"]
+# 只列 key 名（[NEVER] 列 value，09 §1.1 + 10-SECRETS-CONTRACT §2）。
+# 三方同步：worker ≡ src/lib/bindings.ts REQUIRED_BINDING_KEYS ≡ wrangler.jsonc secrets.required
+# （guard §F/§G 把關）。
+#
+# CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID（.env）= deploy-time shell 憑證，非 worker
+# runtime binding → 不在此（alliance-member 先例），見 secrets-archive/SECRETS.md。
+worker = ["ADMIN_TOKEN"]
+
+# optional_worker = runtime 會讀、但缺了不影響核心功能的 secret（10 §5.2 try* accessor 模式；
+# topreview-hotel 先例：optional 不列入 required worker 合約）。
+# SLACK_API_TOKEN：D1 settings 表為主（/admin 設定），env 值僅在 DB 設定為空時 fallback。
+optional_worker = ["SLACK_API_TOKEN"]
+
+# legacy_names(10 §3 / guard §J)：既有命名 drift 允許清單。目前無。
+
+[[secrets.meta]]
+name = "ADMIN_TOKEN"
+env = "all"
+authority = "B"   # 雲端 wrangler secret put；本機 .dev.vars（secrets-archive 備份）
+provenance = "自產 admin Basic-Auth 密碼（openssl rand -hex 24；使用者自選/自產）"
+shared_across = []
+last_rotated = "2026-09-04（dev 值首次入庫；prod 尚未部署，首次部署時設定）"
+owner = "@peter"
+
+[[secrets.meta]]
+name = "SLACK_API_TOKEN"
+env = "all"
+authority = "B"
+provenance = "Slack workspace → app → Bot User OAuth Token（legacy；主要來源為 D1 settings 表，經 /admin 設定）"
+shared_across = []
+last_rotated = "未輪替（legacy fallback，DB settings 優先）"
+owner = "@peter"
 
 [bootstrap]
 script = "./scripts/bootstrap.sh"
-requires = ["node>=20", "wrangler-cli"]
+requires = ["node>=20", "wrangler-cli", "7z", "python>=3.11"]
+# requires 說明：node>=20 + wrangler-cli（npm i 內含）= app 本身；
+#   7z = secrets-archive restore/seal（AES-256 env.7z）；python>=3.11 = §L/§M guard（tomllib）。
+#   secret 還原：`bash secrets-archive/restore.sh`（自包含模型，private repo）。
 
 [verify]
 script = "./scripts/portability-smoke.sh"
-fresh_clone_smoke = "npm run dev → curl /health"
+fresh_clone_smoke = "npm install → restore secrets → typecheck + lint + test（app+guards 雙 pool）+ build dry-run 全綠（deterministic）；wrangler dev 為 foreground server，手動另行"
 
+# 09 §1.3 invariant 誠實狀態：本 repo 有 GitHub remote 但 CI runner 需 self-hosted（同 braingo 先例）。
+#   - invariant 替代 = GitHub Actions workflow（self-hosted）+ pre-push 全測（npm test，含 §A–§M + D18–D21）。
 [vendor_lock]
 level = "low"
-touchpoints = ["DurableObjectNamespace", "c.env.DB", "env.DB"]
+touchpoints = ["env.DB", "c.env.DB"]
+# 09 §2.3：grep-able touchpoints。§E guard 據此驗「程式碼出現的 vendor binding 都被盤點」。
+# 目前 vendor 面 = D1 binding（DB）。`cloudflare:workers` import 目前為 0
+# （01-CLAUDE §2：引入時集中 src/lib/runtime.ts）。Cron Triggers = wrangler 配置層，無程式碼 touchpoint。
+
+# === 08-OPS-MANUAL-FRAMEWORK 適用性判定（rules/CLAUDE.md Step 5）===
+# status = NA。本 repo 是 monitoring worker code repo，非人類 ops 手冊站（docs-hub）。
+# ops 內容（若未來需要）由 docs-hub 以 file-level cite 指回本 repo，不抄錄、不雙寫。
+[ops_manual]
+status = "na"
+framework = "~/Code/rules/08-OPS-MANUAL-FRAMEWORK.md"
+reason = "code repo，非手冊站；08 §0 職責邊界 + §5 觸發條件不在本 repo"

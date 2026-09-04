@@ -6,7 +6,7 @@ import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult } from './services/logic';
 
 export const scheduled = async (
-  event: ScheduledEvent,
+  _event: ScheduledEvent,
   env: AppBindings,
   ctx: ExecutionContext
 ): Promise<void> => {
@@ -17,13 +17,6 @@ export const scheduled = async (
       try {
         // ===== Self-Monitoring: Watch-Dog monitors itself =====
         const selfCheckId = 'watch-dog:self-health';
-        const selfProject = {
-          id: 'watch-dog',
-          token: '',
-          display_name: 'Watch-Dog Sentinel',
-          maintenance_until: 0,
-          created_at: now,
-        };
 
         const selfCheck = await env.DB
           .prepare('SELECT * FROM checks WHERE id = ?')
