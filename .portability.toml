@@ -47,8 +47,8 @@ owner = "@peter"
 
 [bootstrap]
 script = "./scripts/bootstrap.sh"
-requires = ["node>=20", "wrangler-cli", "7z", "python>=3.11"]
-# requires 說明：node>=20 + wrangler-cli（npm i 內含）= app 本身；
+requires = ["node>=22", "wrangler-cli", "7z", "python>=3.11"]
+# requires 說明：node>=22（wrangler 4.129 實測硬擋 <22，2026-09-04 fresh-clone 驗證）+ wrangler-cli（npm i 內含）；
 #   7z = secrets-archive restore/seal（AES-256 env.7z）；python>=3.11 = §L/§M guard（tomllib）。
 #   secret 還原：`bash secrets-archive/restore.sh`（自包含模型，private repo）。
 

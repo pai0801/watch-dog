@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-04] fresh-clone bootstrap 實測：node requires 20→22 更正 + restore.sh 同型 hang 修復
+**目標**：驗證「fresh clone 可重建」承諾（09 §1.1 portability 承重牆）在本機的真實行為，並修實測發現的缺陷。
+**原因**：① bootstrap [0/5] 宣稱 requires `node>=20` 但 wrangler 4.129 實測硬擋 <22（fresh clone 上 [2/5] cf-typegen 即敗）——requires 檢查說謊；② restore.sh 的 `get_pass` 有 seal.sh 已修的同型 hang（`read -rs` 無密碼非互動環境永久阻塞）——bootstrap [3/5] fresh clone 會 hang；③ #7 移除後仍有殘留引用（admin-settings-ui-summary.md 的 `getEnvWithFallback`、SECRETS.md/bindings.ts 的 `getEffectiveSettings`）。
+**預期結果**：bootstrap [0/5] node 檢查改 ≥22（WARN 路徑含免 sudo recipe 指引）；`.portability.toml [bootstrap].requires` 同步 `node>=22`；restore.sh `</dev/null` stdin 隔離 + 空密碼 fail-fast（明確 ERROR）；殘留引用清理對齊 `getAllSettings` 最終設計。
+**範圍**：`scripts/bootstrap.sh`、`secrets-archive/{restore.sh,SECRETS.md}`、`.portability.toml`、`docs/admin-settings-ui-summary.md`、`src/lib/bindings.ts`（註解）。無 schema 變動、無 secret 值變動。
+**驗證**：fresh-clone 實測矩陣（glibc 2.31 + node 22 tarball）：[1/5] npm install ✓、[2/5] cf-typegen 生成 types ✓（但 exit 1：runtime types 階段 spawn workerd 死於 glibc——types 檔已足讓 typecheck ✓）、[3/5] restore 無密碼場景修復後 41ms fail-fast ✓（修前永 hang）、[4/5] d1 --local 確認死於 workerd glibc（預期內，記錄）、guards 21/21 ✓ eslint ✓ typecheck ✓ 於 fresh clone 全綠。node 20 主機 [0/5] WARN 如實觸發 ✓；§L guard ✓（manifest requires 變更後）。
+**環境矩陣結論**（glibc 2.31 主機）：wrangler CLI（types/deploy dry-run）＝node 22 可解；workerd 依賴（d1 --local/dev/app pool）＝node 解不了，需 glibc ≥ 2.32 環境（容器/新主機）——與 SECRETS.md/AGENTS.md 環境限制表一致。
+
 ### [2026-09-04] TODO-REVIEW #7 清償：移除 SLACK_* env fallback——首次部署前落地，DB settings 單一真相源（TODO-REVIEW 16→0）
 **目標**：消除「DB settings 為主、env 為 fallback」的雙真相來源，讓系統從首次部署起就是單一架構。
 **原因**：原處置建議「兩個專案遷移到 DB settings 後刪 fallback」——但重審前提：**系統從未部署**（首次部署待辦），「等遷移」的條件不存在；現在移除 = 零部署受影響、零遷移成本，且與 #8（Bearer-only）同為「出生前收縮介面」模式。

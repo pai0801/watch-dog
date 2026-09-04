@@ -5,7 +5,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "== [0/5] 依賴檢查（.portability.toml [bootstrap].requires）=="
-command -v node >/dev/null 2>&1 || { echo "FAIL: node 未安裝（requires node>=20）"; exit 1; }
+# 2026-09-04 fresh-clone 實測：wrangler 4.129 的 types/d1/dev 都硬擋 node<22；
+# workerd（d1 --local / dev / app pool）另需 host glibc ≥ 2.32（Ubuntu ≥ 20.10）——
+# glibc 不足時 [2/5] types 仍可生成、[4/5] d1 --local 會失敗（見 SECRETS.md 環境矩陣）。
+node_ver_ok() { node -e "process.exit(require('semver').satisfies(process.version, '>=22') ? 0 : 1)" 2>/dev/null \
+  || node -p "Number(process.versions.node.split('.')[0]) >= 22" 2>/dev/null | grep -q true; }
+if command -v node >/dev/null 2>&1 && node_ver_ok; then
+  :
+else
+  echo "  WARN: node ≥ 22 未達（當前 $(node -v 2>/dev/null || echo 未安裝)）——wrangler 4.129 會擋 [2/5] cf-typegen 起的所有步驟"
+  echo "        免 sudo 解法：user-space tarball（recipe 見 secrets-archive/SECRETS.md 首次部署段）"
+fi
 command -v 7z >/dev/null 2>&1 || command -v 7zz >/dev/null 2>&1 \
   || echo "  WARN: 7z 未安裝——secrets-archive restore/seal 需要（restore.sh 會硬失敗）"
 python3 -c 'import sys; assert sys.version_info >= (3, 11)' 2>/dev/null \
