@@ -33,17 +33,16 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Extract the project token from a request.
- *
- * Supports `Authorization: Bearer {token}` (preferred) and the legacy
- * `X-Project-Token` header for backward compatibility.
+ * Extract the project token from a request: `Authorization: Bearer {token}`.
+ * Legacy `X-Project-Token` header removed 2026-09-04 — cross-repo inventory
+ * found zero remaining users (client_example.py already Bearer-only).
  */
 export function extractProjectToken(c: Context<{ Bindings: AppBindings }>): string | undefined {
   const authHeader = c.req.header('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.slice(7);
   }
-  return c.req.header('X-Project-Token') || undefined;
+  return undefined;
 }
 
 /**

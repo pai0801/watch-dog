@@ -4,8 +4,8 @@ Base URL: `https://watch-dog.paipeter-gui.workers.dev`
 
 ## Authentication
 
-Machine API requests authenticate with the project token, preferably as a
-Bearer token (the legacy `X-Project-Token` header still works):
+Machine API requests authenticate with the project token as a Bearer token
+(the legacy `X-Project-Token` header was removed 2026-09-04 — Bearer only):
 
 ```
 Authorization: Bearer your-project-token-here
@@ -27,7 +27,7 @@ Report a heartbeat pulse from a service.
 **Request:**
 ```http
 POST /api/pulse
-X-Project-Token: your-token
+Authorization: Bearer your-project-token
 Content-Type: application/json
 
 {
@@ -75,7 +75,7 @@ Register or update project and check configurations.
 **Request:**
 ```http
 PUT /api/config
-X-Project-Token: your-token
+Authorization: Bearer your-project-token
 Content-Type: application/json
 
 {

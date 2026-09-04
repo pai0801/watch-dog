@@ -128,7 +128,7 @@ API="http://localhost:8787"
 
 # Register a project
 curl -X PUT $API/api/config \
-  -H "X-Project-Token: $TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "test",
@@ -143,7 +143,7 @@ curl -X PUT $API/api/config \
 
 # Send a pulse
 curl -X POST $API/api/pulse \
-  -H "X-Project-Token: $TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"check_name": "health", "status": "ok"}'
 

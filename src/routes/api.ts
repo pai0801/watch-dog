@@ -3,7 +3,7 @@
 //
 // Auth model:
 // - /api/config, /api/pulse, /api/maintenance: project token required
-//   (Authorization: Bearer {token} or legacy X-Project-Token header).
+//   (Authorization: Bearer {token}; legacy X-Project-Token removed 2026-09-04).
 // - /api/status: public read-only status feed (documented behavior).
 
 import { Hono } from 'hono';

@@ -79,9 +79,9 @@ describe('PUT /api/config', () => {
     expect(res.status).toBe(403);
   });
 
-  it('supports the legacy X-Project-Token header', async () => {
+  it('rejects the removed legacy X-Project-Token header (401)', async () => {
     const res = await put('/api/config', configBody, { 'X-Project-Token': TOKEN });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 
   it('rejects a project_id outside the safe charset (stored-XSS hardening)', async () => {
