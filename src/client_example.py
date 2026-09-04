@@ -16,7 +16,7 @@ Example Usage:
         "interval": 60,
         "grace": 10,
         "threshold": 3
-    }])
+    }], project_id="my-service", display_name="My Service")
 
     # In your periodic check
     try:
@@ -32,7 +32,7 @@ Example Usage:
         "type": "event",
         "threshold": 1,
         "cooldown": 300
-    }])
+    }], project_id="my-service", display_name="My Service")
 
     try:
         process_payment()
@@ -93,7 +93,12 @@ class WatchDog:
             "Content-Type": "application/json",
         }
 
-    def register(self, checks: List[Dict[str, Any]]) -> None:
+    def register(
+        self,
+        checks: List[Dict[str, Any]],
+        project_id: str,
+        display_name: str,
+    ) -> None:
         """
         Register or update check definitions.
 
@@ -109,18 +114,29 @@ class WatchDog:
                 - grace (int, optional): Grace period in seconds before alert
                 - threshold (int, optional): Consecutive failures before alert
                 - cooldown (int, optional): Seconds to wait before re-alerting
+            project_id: Unique project identifier (lowercase, numbers, hyphens).
+                Required by the API — a payload without it is rejected with 400.
+            display_name: Human-readable project name shown on the dashboard.
 
         Example:
-            wd.register([{
-                "name": "db_connectivity",
-                "display_name": "Database Connectivity",
-                "type": "heartbeat",
-                "interval": 60,
-                "grace": 10,
-                "threshold": 3
-            }])
+            wd.register(
+                [{
+                    "name": "db_connectivity",
+                    "display_name": "Database Connectivity",
+                    "type": "heartbeat",
+                    "interval": 60,
+                    "grace": 10,
+                    "threshold": 3
+                }],
+                project_id="my-service",
+                display_name="My API Service",
+            )
         """
-        payload = {"checks": checks}
+        payload = {
+            "project_id": project_id,
+            "display_name": display_name,
+            "checks": checks,
+        }
 
         def _do_register():
             self._send_request("PUT", "/api/config", payload)
@@ -271,7 +287,7 @@ def example_heartbeat_monitoring():
             "grace": 5,
             "threshold": 2,
         }
-    ])
+    ], project_id="my-service", display_name="My Service")
 
     # Simulate a health check function
     def run_db_health_check():
@@ -327,7 +343,7 @@ def example_event_monitoring():
             "threshold": 1,
             "cooldown": 60,
         }
-    ])
+    ], project_id="my-service", display_name="My Service")
 
     def process_payment(amount: float, currency: str = "USD"):
         """Example payment processing function."""
@@ -371,7 +387,7 @@ def example_decorator_usage():
         "type": "heartbeat",
         "interval": 3600,  # Runs every hour
         "grace": 60,
-    }])
+    }], project_id="my-service", display_name="My Service")
 
     # Use the decorator
     @watchdog_pulse(wd, "cron_job_cleanup", report_latency=True)
@@ -404,5 +420,5 @@ if __name__ == "__main__":
     print("\nTo use in your application:")
     print("  from client_example import WatchDog")
     print("  wd = WatchDog(base_url='...', project_token='...')")
-    print("  wd.register([...])")
+    print("  wd.register([...], project_id=..., display_name=...)")
     print("  wd.pulse('check_name', status='ok')")

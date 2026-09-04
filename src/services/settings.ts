@@ -134,12 +134,15 @@ export async function updateSlackSettings(db: D1Database, settings: SlackSetting
   try {
     const now = Math.floor(Date.now() / 1000);
 
-    const updates = [
-      ['slack_api_token', settings.api_token],
-      ['slack_channel_critical', settings.channel_critical],
-      ['slack_channel_success', settings.channel_success],
-      ['slack_channel_warning', settings.channel_warning],
-      ['slack_channel_info', settings.channel_info],
+    // An empty api_token means "keep the current value" — the admin form
+    // never echoes the token back into HTML, so an empty field must not
+    // wipe the stored secret.
+    const updates: Array<[string, string]> = [
+      ...(settings.api_token ? [['slack_api_token', settings.api_token] as [string, string]] : []),
+      ['slack_channel_critical', settings.channel_critical || ''],
+      ['slack_channel_success', settings.channel_success || ''],
+      ['slack_channel_warning', settings.channel_warning || ''],
+      ['slack_channel_info', settings.channel_info || ''],
     ];
 
     for (const [key, value] of updates) {

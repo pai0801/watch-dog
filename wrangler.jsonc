@@ -5,7 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "watch-dog",
-	"main": "src/index.tsx",
+	"main": "src/index.ts",
 	"compatibility_date": "2026-01-28",
 
 	// D1 Database binding
@@ -22,10 +22,6 @@
 		"crons": ["* * * * *"]
 	},
 
-	"assets": {
-		"binding": "ASSETS",
-		"directory": "./public"
-	},
 	"observability": {
 		"enabled": true
 	}

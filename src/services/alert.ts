@@ -3,7 +3,7 @@
 
 import { D1Database } from '@cloudflare/workers-types';
 import { Env } from '../types';
-import { getAllSettings, getEnvWithFallback } from './settings';
+import { getAllSettings, getEnvWithFallback, type AllSettings } from './settings';
 
 /**
  * Alert levels for Watch-Dog notifications
@@ -39,10 +39,10 @@ export interface SlackAlertData {
  * Channel mapping for different alert levels
  * Maps alert levels to settings keys
  */
-const CHANNEL_MAP: Record<AlertLevel, keyof AllSettings> = {
+const CHANNEL_MAP: Record<AlertLevel, 'channel_critical' | 'channel_success' | 'channel_warning'> = {
   critical: 'channel_critical',
   recovery: 'channel_success',
-  warning: 'channel_critical',
+  warning: 'channel_warning',
 };
 
 /**
@@ -97,7 +97,7 @@ export async function sendSlackAlert(db: D1Database, env: Env, data: SlackAlertD
 
   // Get channel ID for this alert level
   const channelKey = CHANNEL_MAP[level];
-  const channelId = settings[channelKey];
+  const channelId = String(settings[channelKey] ?? '');
   if (!channelId) {
     console.error(`[Slack] Channel for ${level} alerts not configured, skipping alert`);
     return;
