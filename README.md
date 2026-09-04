@@ -2,6 +2,8 @@
 
 A serverless, passive monitoring system ("Dead Man's Switch") for distributed microservices. Services report heartbeats to the Sentinel, and if they stop reporting, alerts are triggered.
 
+> **Production**: `https://watch-dog.helperp.workers.dev` · public status feed: [`/api/status`](https://watch-dog.helperp.workers.dev/api/status)
+
 ## Features
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API
@@ -16,7 +18,7 @@ A serverless, passive monitoring system ("Dead Man's Switch") for distributed mi
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/paipeter0801/watch-dog.git
+git clone https://github.com/pai0801/watch-dog.git
 cd watch-dog
 npm install
 ```
@@ -66,7 +68,8 @@ submitted empty.
 
 ## Usage
 
-See [docs/usage.md](docs/usage.md) for detailed usage instructions and client integration examples.
+- **Monitoring a service?** Start with the [Client Guide](docs/client-guide.md) — 30-second integration, copy-paste examples (shell / Node / Python), and a ready-made block for your repo's AI agent.
+- **Operating this sentinel?** See the [Operator Guide](docs/usage.md).
 
 ## API Endpoints
 
@@ -118,10 +121,15 @@ npm run deploy
 
 ## Documentation
 
-- [Usage Guide](docs/usage.md) - User documentation and client integration
-- [API Documentation](docs/api.md) - Complete API reference
-- [Development Guide](docs/development.md) - Setup and development instructions
-- [Testing Checklist](docs/testing.md) - Manual testing procedures
+| 你是… | 讀這份 | 內容 |
+|---|---|---|
+| **要被監控的服務**（維護者 / AI agent） | [docs/client-guide.md](docs/client-guide.md) | 30 秒接入、token 與認證、check 參數（含實際 clamp）、警報路由、shell/Node/Python 範例、agent 指示塊 |
+| **watch-dog 操作者** | [docs/usage.md](docs/usage.md) | Admin UI、專案建立、Slack 設定、維護模式、排查 |
+| **整合進程式碼** | [docs/api.md](docs/api.md) | 完整 API 參考（端點 / 欄位 / 錯誤碼 / clamp） |
+| **開發 / 維護本 repo** | [docs/development.md](docs/development.md) | 環境、測試、框架規範 |
+| **手動測試** | [docs/testing.md](docs/testing.md) | 測試程序 |
+
+歷史計畫文件在 `docs/plans/`（記錄用，不反映現況）。
 
 ## License
 

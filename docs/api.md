@@ -1,6 +1,8 @@
 # Watch-Dog Sentinel API Documentation
 
-Base URL: `https://watch-dog.paipeter-gui.workers.dev`
+Base URL: `https://watch-dog.helperp.workers.dev`
+
+> 客戶端專案的快速接入請從 [client-guide.md](client-guide.md) 開始；本檔是完整 API 參考。
 
 ## Authentication
 
@@ -103,17 +105,19 @@ Content-Type: application/json
 | display_name | string | Yes | Human-readable name |
 | checks | array | Yes | Array of check configurations |
 
-**Check Config Fields:**
+**Check Config Fields**（defaults and actual clamps — out-of-range values are silently clamped, invalid entries silently skipped; trust `checks_registered` in the response）:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| name | string | - | Check name (unique within project) |
-| display_name | string | - | Display name |
-| type | string | - | "heartbeat" or "event" |
-| interval | number | 300 | Pulse interval (seconds), heartbeat only |
-| grace | number | 60 | Grace period (seconds) |
-| threshold | number | 1 | Failures before alert |
-| cooldown | number | 900 | Alert cooldown (seconds) |
+| Field | Type | Default | Accepted | Description |
+|-------|------|---------|----------|-------------|
+| name | string | - | `[a-z0-9-]` style, validated | Check name (unique within project) |
+| display_name | string | - | - | Display name |
+| type | string | - | `heartbeat` \| `event` | Others are skipped |
+| interval | number | 300 | clamped 10–300 | Pulse interval (seconds), heartbeat only |
+| grace | number | 60 | clamped 0–60 | Grace period (seconds) |
+| threshold | number | 1 | clamped 1–1 (fixed at 1) | Failures before alert |
+| cooldown | number | 900 | clamped 0–900 | Alert cooldown (seconds); 0 = use global silence |
+
+> Note: `threshold` is currently pinned to 1 by the server-side clamp — sending `3` behaves as `1`.
 
 **Response:**
 ```json
@@ -267,9 +271,10 @@ except Exception as e:
 
 ## Alert Behavior
 
-1. **Threshold**: Number of consecutive failures before alerting
-2. **Cooldown**: Minimum time between alerts for same check
+1. **Threshold**: Number of consecutive failures before alerting (currently fixed at 1 by clamp)
+2. **Cooldown**: Minimum time between alerts for same check (0 = use the global silence period; a value > 0 overrides it for this check)
 3. **Maintenance**: Alerts suppressed when project is in maintenance mode
+4. **Monitor off**: A check paused in the admin UI (monitor = 0) still accepts pulses but never alerts
 
 Alert levels:
 - **Critical**: Service is DEAD (no pulse received)

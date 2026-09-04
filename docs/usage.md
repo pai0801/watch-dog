@@ -1,327 +1,97 @@
-# Watch-Dog Sentinel 使用指南
+# Watch-Dog 操作者指南（Usage）
+
+> 本檔給**管理 watch-dog 本身**的操作者。要**接入監控的客戶端專案**請讀 [client-guide.md](client-guide.md)；完整 API 規格見 [api.md](api.md)。
 
 ## 服務地址
 
-**Watch-Dog Sentinel URL:** `https://watch-dog.paipeter-gui.workers.dev/`
-**Admin 管理頁面:** `https://watch-dog.paipeter-gui.workers.dev/admin`（需 Admin 密碼,見下方）
-
----
+- **Watch-Dog URL**: `https://watch-dog.helperp.workers.dev/`
+- **Admin 管理頁面**: `https://watch-dog.helperp.workers.dev/admin`（Basic Auth，密碼 = `ADMIN_TOKEN` Worker secret，用戶名任意）
 
 ## 概述
 
-Watch-Dog Sentinel 是一個**被動監控系統**（Dead Man's Switch）。服務主動向 Watch-Dog 報告心跳，如果停止報告，系統會發送警報到 Slack。
+Watch-Dog Sentinel 是**被動監控系統**（Dead Man's Switch）。服務主動向 Watch-Dog 報告心跳，停止報告 = 觸發 Slack 警報。Cron 每分鐘掃描逾期 check。
 
 ### 核心概念
 
 | 概念 | 說明 |
 |------|------|
-| **Project Token** | 每個項目獨立的 Token，用於客戶端 API 認證 |
-| **Slack API Token** | 全局設置，用於向 Slack 發送通知 |
-| **Admin 密碼 (ADMIN_TOKEN)** | `/admin` 頁面的 HTTP Basic Auth 密碼（Worker secret,用戶名任意） |
-| **Monitor 開關** | 勾選=監控該檢查，不勾選=跳過（不會觸發警報） |
+| **Project Token** | 每個專案獨立的 token，客戶端 API 認證用（Bearer only） |
+| **Slack API Token / 頻道** | 全域設定，存於 D1 `settings` 表（`/admin` 設定）——**不是** Worker secret |
+| **Admin 密碼 (`ADMIN_TOKEN`)** | `/admin` 頁面的 Basic Auth 密碼（這才是 Worker secret） |
+| **Monitor 開關** | 勾選 = 監控該 check；不勾 = 照收 pulse 但不警報 |
 
-> **安全提示**：`/api/maintenance/:projectId` 也需要 Project Token；
-> Slack API Token 只顯示遮罩（`••••••••1234`），表單留空 = 保留現有值。
+> **安全提示**：`/api/maintenance/:projectId` 也需要 Project Token；Slack API Token 在表單只顯示遮罩，留空送出 = 保留現有值。
 
----
+## 操作流程
 
-## 快速開始（3步驟）
+### 1) 建立 Project（二擇一）
 
-### 第一步：創建項目
+- **Admin UI**：`/admin` → Projects 標籤 → New Project（Project ID 小寫英文/數字/連字符；Token 至少 16 字元）——會自動附帶一個 `self` 心跳 check。
+- **客戶端自行註冊**：客戶端首次 `PUT /api/config` 自帶 token 即建立（新建開放；改動既有 project 需原 token）。單操作者艦隊可接受。
 
-1. 訪問 `https://watch-dog.paipeter-gui.workers.dev/admin`
-2. 切換到 **Projects** 標籤
-3. 點擊 **New Project**，填寫：
-   - **Project ID**: `my-service`（小寫英文、數字、連字符）
-   - **Display Name**: `我的服務`
-   - **Token**: 輸入或生成一個安全 Token（至少 16 字元）
-4. 點擊 **Create**
+Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 repo 的 env-tools / secrets-archive 模式），[NEVER] 明文 commit。
 
-### 第二步：配置 Slack 通知
+### 2) 設定 Slack
 
-1. 切換到 **Settings** 標籤
-2. 填寫 Slack 配置：
-   - **API Token**: `xoxb-...`（從 [Slack Apps](https://api.slack.com/apps) 獲取）
-   - **Critical Channel**: 嚴重警報頻道 ID
-   - **Success Channel**: 恢復通知頻道 ID
-   - **Warning Channel**: 警告頻道 ID
-   - **Info Channel**: 信息日誌頻道 ID
-   - **Silence Period**: 重複警報間隔（秒，建議 3600）
-3. 點擊 **Save Settings**
+`/admin` → Settings 標籤：API Token（`xoxb-…`）、critical / success / warning / info 四個頻道 ID、靜默期秒數。
 
-### 第三步：客戶端集成
+> 現況（2026-09-05）：四頻道＋token 已設定完成，警報鏈已實測（判死 → critical 送達、恢復 → success 送達）。
 
-將你的服務連接到 Watch-Dog，參考下方範例。
+### 3) 客戶端接入
 
----
-
-## Python 客戶端範例
-
-```python
-# utils/watchdog.py
-import requests
-import threading
-
-class WatchDogClient:
-    def __init__(self, token: str, project_id: str, display_name: str):
-        self.base_url = "https://watch-dog.paipeter-gui.workers.dev"
-        self.headers = {"Authorization": f"Bearer {token}"}
-        self.project_id = project_id
-        self.display_name = display_name
-
-    def register_checks(self, checks: list):
-        """註冊檢查規則（project_id / display_name 為 API 必填欄位）"""
-        payload = {"project_id": self.project_id, "display_name": self.display_name, "checks": checks}
-        threading.Thread(target=self._do_register, args=(payload,)).start()
-
-    def _do_register(self, payload):
-        try:
-            requests.put(f"{self.base_url}/api/config", json=payload, headers=self.headers, timeout=10)
-        except Exception:
-            pass
-
-    def pulse(self, check_name: str, status="ok", message="OK", latency=0):
-        """發送心跳"""
-        payload = {
-            "check_name": check_name,
-            "status": status,
-            "message": str(message),
-            "latency": latency
-        }
-        threading.Thread(target=self._send, args=(payload,)).start()
-
-    def _send(self, payload):
-        try:
-            requests.post(f"{self.base_url}/api/pulse", json=payload, headers=self.headers, timeout=5)
-        except Exception:
-            pass
-
-# 使用範例
-wd = WatchDogClient(token="your-project-token-here", project_id="my-service", display_name="我的服務")
-
-# 啟動時註冊
-wd.register_checks([{
-    "name": "db_health",
-    "display_name": "資料庫健康檢查",
-    "type": "heartbeat",
-    "interval": 60,
-    "grace": 10,
-    "threshold": 3,
-    "cooldown": 300
-}])
-
-# 定期發送心跳
-def health_check():
-    try:
-        # 執行健康檢查
-        latency = db.check_latency()
-        wd.pulse("db_health", status="ok", latency=latency)
-    except Exception as e:
-        wd.pulse("db_health", status="error", message=str(e))
-
-# 每60秒執行
-# sched.add_job(health_check, 'interval', seconds=60)
-```
-
----
-
-## Node.js / TypeScript 範例
-
-```typescript
-// utils/watchdog.ts
-type CheckConfig = {
-  name: string;
-  display_name: string;
-  type: 'heartbeat' | 'event';
-  interval?: number;
-  grace?: number;
-  threshold?: number;
-  cooldown?: number;
-};
-
-export class WatchDog {
-  private baseUrl = "https://watch-dog.paipeter-gui.workers.dev";
-
-  constructor(
-    private token: string,
-    private projectId: string,
-    private displayName: string
-  ) {}
-
-  async register(checks: CheckConfig[]) {
-    await fetch(`${this.baseUrl}/api/config`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${this.token}`,
-        'Content-Type': 'application/json'
-      },
-      // project_id / display_name are required by the API
-      body: JSON.stringify({ project_id: this.projectId, display_name: this.displayName, checks })
-    }).catch(() => {});
-  }
-
-  pulse(checkName: string, status: 'ok' | 'error', message = 'OK', latency = 0) {
-    fetch(`${this.baseUrl}/api/pulse`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        check_name: checkName,
-        status,
-        message,
-        latency
-      })
-    }).catch(() => {});
-  }
-}
-
-// 使用
-const wd = new WatchDog('your-project-token-here', 'my-service', 'My Service');
-
-await wd.register([{
-  name: 'api_server',
-  display_name: 'API Server',
-  type: 'heartbeat',
-  interval: 30,
-  grace: 5
-}]);
-
-setInterval(() => {
-  wd.pulse('api_server', 'ok', 'Server running');
-}, 30000);
-```
-
----
-
-## Shell Script 範例
-
-```bash
-#!/bin/bash
-
-WD_URL="https://watch-dog.paipeter-gui.workers.dev"
-TOKEN="your-project-token-here"
-
-# 執行任務
-START=$(date +%s%3N)
-# your_command_here
-EXIT_CODE=$?
-END=$(date +%s%3N)
-LATENCY=$((END-START))
-
-# 回報結果
-if [ $EXIT_CODE -eq 0 ]; then
-  curl -X POST "$WD_URL/api/pulse" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"check_name":"backup","status":"ok","latency":'$LATENCY'}' \
-    --max-time 5 > /dev/null 2>&1 &
-else
-  curl -X POST "$WD_URL/api/pulse" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"check_name":"backup","status":"error","message":"Failed"}' \
-    --max-time 5 > /dev/null 2>&1 &
-fi
-```
-
----
-
-## API 端點
-
-### 發送心跳
-
-```bash
-POST /api/pulse
-Authorization: Bearer {project_token}
-Content-Type: application/json
-
-{
-  "check_name": "my_check",
-  "status": "ok",           # ok 或 error
-  "message": "一切正常",
-  "latency": 50             # 毫秒（可選）
-}
-```
-
-### 註冊檢查規則
-
-```bash
-PUT /api/config
-Authorization: Bearer {project_token}
-Content-Type: application/json
-
-{
-  "project_id": "my-service",
-  "display_name": "我的服務",
-  "checks": [
-    {
-      "name": "my_check",
-      "display_name": "我的檢查",
-      "type": "heartbeat",
-      "interval": 60,
-      "grace": 10,
-      "threshold": 3,
-      "cooldown": 300
-    }
-  ]
-}
-```
-
----
+把 [client-guide.md](client-guide.md) 給客戶端專案的維護者（或其 agent）——裡面有 30 秒最小閉環、三種語言範例、和可直接貼進 client repo CLAUDE.md 的 agent 指示塊。
 
 ## Admin 管理頁面
 
-訪問 `https://watch-dog.paipeter-gui.workers.dev/admin`
-瀏覽器會要求 Basic Auth：用戶名任意，密碼 = `ADMIN_TOKEN` Worker secret。
-
 ### Settings 標籤
-- 配置 Slack API Token 和頻道 ID（Token 欄位顯示遮罩,留空送出 = 保留現有 Token）
-- 設定警報冷卻時間
+- Slack API Token 與頻道 ID（Token 遮罩顯示，留空送出 = 保留）
+- 警報全局靜默期
 
 ### Projects 標籤
-- 查看所有項目
-- 創建新項目
-- 刪除項目
+- 查看所有專案、建立、刪除（刪除連同 checks/logs）
 
 ### Checks 標籤
-- 查看所有檢查狀態
-- **Monitor checkbox** - 勾選=監控，不勾選=暫停
-- 刪除檢查
+- 查看所有 check 狀態
+- **Monitor checkbox**：勾選 = 監控、不勾 = 暫停
+- 編輯（interval/grace/threshold/cooldown）、刪除
 
----
+## 檢查參數（含實際 clamp）
 
-## 檢查參數說明
+| 參數 | 說明 | 預設 | 實際範圍 |
+|------|------|------|---------|
+| **Type** | `heartbeat` = 定期心跳（會判死）；`event` = 只在 error 回報時警報 | — | 二選一 |
+| **Interval** | 心跳間隔（秒） | 300 | clamp 10–300 |
+| **Grace** | 寬限期（秒），超過 interval+grace 無 pulse 才判死 | 60 | clamp 0–60 |
+| **Threshold** | 連續失敗次數門檻 | 1 | **固定 1**（clamp 1–1） |
+| **Cooldown** | 同 check 警報冷卻（秒）；>0 覆蓋全局靜默期 | 900 | clamp 0–900 |
+| **Monitor** | 勾選 = 監控 | 1 | — |
 
-| 參數 | 說明 |
-|------|------|
-| **Type** | `heartbeat` = 定期心跳, `event` = 事件觸發 |
-| **Interval** | 心跳間隔（秒） |
-| **Grace** | 寬限期（秒），超過 interval+grace 才算逾期 |
-| **Threshold** | 連續失敗幾次才觸發警報 |
-| **Cooldown** | 警報冷卻時間（秒），避免重複通知 |
-| **Monitor** | 勾選=監控，不勾選=暫停監控 |
+## 維護模式
 
----
+排程維護時靜音整個 project（客戶端也可用自己的 token 呼叫，見 client-guide）：
 
-## 故障排查
+```bash
+curl -X POST "https://watch-dog.helperp.workers.dev/api/maintenance/my-service" \
+  -H "Authorization: Bearer PROJECT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"duration":3600}'
+```
+
+## 故障排查（操作者視角）
 
 ### 沒有收到 Slack 通知？
-1. 檢查 Settings 中的 Slack API Token 是否正確
-2. 檢查頻道 ID 是否正確
-3. 檢查該 Check 的 Monitor 是否勾選
-4. 查看 Dashboard 確認 Check 狀態
+1. `/admin` Settings 的 Slack API Token 是否有效、頻道 ID 是否正確
+2. 該 check 的 Monitor 是否勾選
+3. 該 project 是否在維護模式
+4. 是否仍在 cooldown / 全局靜默期內
+5. `wrangler tail watch-dog` 觀察 cron 執行——`[Slack]` 前綴的 console.error 即送信失敗原因
 
 ### Check 一直顯示 DEAD？
-1. 確認客戶端正在發送 pulse
-2. 檢查 Token 是否正確
-3. 查看 Interval 和 Grace 設定是否合理
-
----
+1. 客戶端確實在發 pulse？（`/api/status/<project_id>` 看 `last_seen`）
+2. interval 是否設得比客戶端實際發送週期短
 
 ## 安全建議
 
-1. **Token 保密** - 不要提交到公開代碼庫，使用環境變量
-2. **使用 HTTPS** - 所有通訊都經過 HTTPS 加密
-3. **Token 強度** - 至少 16 字元，隨機生成
+1. **Token 保密** — 不 commit 進 repo，走環境變數 / secrets 管理管道
+2. **Token 強度** — 至少 16 字元隨機值
+3. **ADMIN_TOKEN 輪替** — 換值後 `wrangler secret put ADMIN_TOKEN`＋所有瀏覽器需重新輸入

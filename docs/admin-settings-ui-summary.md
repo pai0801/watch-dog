@@ -57,7 +57,7 @@ getAllSettings(db: D1Database): Promise<AllSettings>
 
 ### 4. Admin 管理介面 (`/admin`)
 
-訪問地址：`https://watch-dog.paipeter-gui.workers.dev/admin`
+訪問地址：`https://watch-dog.helperp.workers.dev/admin`
 
 #### 設置標籤頁
 
@@ -124,7 +124,7 @@ getAllSettings(db: D1Database): Promise<AllSettings>
 
 生產環境已部署：
 ```
-https://watch-dog.paipeter-gui.workers.dev/admin
+https://watch-dog.helperp.workers.dev/admin
 ```
 
 ### 首次設置

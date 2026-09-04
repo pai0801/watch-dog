@@ -1,6 +1,6 @@
 # Admin Dashboard Testing Checklist
 
-Manual testing checklist for `/admin` page at https://watch-dog.paipeter-gui.workers.dev/admin
+Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.dev/admin
 
 > Core behavior (auth gate, CSRF, token masking, alerting state machine, cron)
 > is covered by the automated suite — run `npm test`. This checklist is the
