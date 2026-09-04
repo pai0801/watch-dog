@@ -1,0 +1,16 @@
+# Copy to .dev.vars for local development (wrangler dev / vitest).
+# This file is committed as documentation — never put real values here.
+
+# Password for the /admin Basic-Auth gate (username is ignored).
+# Generate one with: openssl rand -hex 24
+ADMIN_TOKEN=change-me-local-admin
+
+# --- Optional legacy Slack fallbacks -------------------------------------
+# Settings primarily live in the D1 settings table (configured via /admin).
+# These env vars are only used when the corresponding DB setting is empty.
+#SLACK_API_TOKEN=
+#SLACK_CHANNEL_CRITICAL=
+#SLACK_CHANNEL_SUCCESS=
+#SLACK_CHANNEL_WARNING=
+#SLACK_CHANNEL_INFO=
+#SLACK_SILENCE_PERIOD_SECONDS=3600
