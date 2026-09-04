@@ -11,6 +11,7 @@
 **預期結果**：pre-push 加 workerd 可執行性探測（`node_modules/.bin/workerd --version` exit code）——可執行跑全量 `npm test`；不可執行走「降級模式」typecheck+lint+guards，輸出大聲標示（⚠ 降級模式 + [MUST] 確認 CI 綠）絕不靜默；SECRETS.md「CI runner 離線」段落記錄 queued 實證 + runner 主機 glibc 前提 + 備份停擺影響面；FIX-LOG 舊條目兩處未驗證主張同步更正。
 **範圍**：`scripts/install-git-hooks.sh`（pre-push 探測分支）、`secrets-archive/SECRETS.md`、`FIX-LOG.md`（本條目 + 舊條目驗證段更正）。無 schema 變動、無 secret 值變動。
 **驗證**：降級路徑實測（typecheck ✓ + eslint ✓ + guards 21/21 ✓，輸出含 ⚠ 降級模式標示）；workerd 探測 exit=1 / vitest 探測 exit=0（區分度實測）；runner 離線證據 GitHub API run #1 queued；build＝本專案無 build step（wrangler deploy，環境前置 node ≥ 22 未滿足，首次部署待辦）。app pool 全量仍待 runner 恢復後由 CI 首跑補驗。
+**補記（node 22 工具鏈驗證）**：user-space node v22.14.0 tarball（免 sudo/nvm）在本機實測 `wrangler --version` 4.129.0 ✓、`wrangler types` ✓、`wrangler deploy --dry-run` ✓（127.60 KiB bundle、D1 binding 認得）——首次部署工具鏈本機已證可用，recipe 更新至 SECRETS.md；`wrangler types` 重跑僅動 baseline `generated_at`（已還原，維持 read-only gate 紀律）。
 
 ### [2026-09-04] 採用協議補完輪二：Step 4/6 CI 缺口 + seal-check hang + Layer-2 guard 補齊（TODO-REVIEW 16→2）
 **目標**：依 `~/Code/rules/CLAUDE.md` 七步協議逐項驗證補完——機械缺口（hooks 未裝、baseline 無人跑、guard 逃逸向量、文件殘留）全數落地，TODO-REVIEW 16 項清到剩 2 項外部盤點債。
