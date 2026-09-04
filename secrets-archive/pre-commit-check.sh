@@ -22,11 +22,14 @@ if git check-ignore secrets-archive/env.7z >/dev/null 2>&1; then
 fi
 
 # 1b) tracked wrangler 配置值級掃描:SECRETISH 形態的鍵不可攜帶非空值(名稱清單合法)。
+#     grep -z 全文比對——跨行 JSONC（"KEY":\n  "value"）也攔（TODO-REVIEW #15 原行本位漏多行形態）。
 #     只掃存在的檔——grep 對「部分檔不存在但其他檔有匹配」回 exit 2,if 會走假分支。
 cfg_files=""
 for f in wrangler.toml wrangler.jsonc; do [ -f "$f" ] && cfg_files="$cfg_files $f"; done
-if [ -n "$cfg_files" ] && grep -nE '(^|["'"'"'])[A-Z][A-Z0-9_]{2,}(["'"'"'][[:space:]]*:[[:space:]]*["'"'"']|[[:space:]]*=[[:space:]]*["'"'"'])[^"'"'"']+' $cfg_files; then
-  echo "FAIL: wrangler config carries a secret VALUE (names only; values via wrangler secret put — 10-SECRETS-CONTRACT)"; status=1
+if [ -n "$cfg_files" ]; then
+  if grep -zEq '(^|["'"'"'[:space:]])(ADMIN_TOKEN|SLACK[A-Z_]*|[A-Z][A-Z0-9_]*(SECRET|TOKEN|API_KEY|APP_ID|APP_SECRET|M2M_ID|M2M_SECRET))(["'"'"']?[[:space:]]*:[[:space:]]*["'"'"']|[[:space:]]*=[[:space:]]*["'"'"'])[^"'"'"']+' $cfg_files 2>/dev/null; then
+    echo "FAIL: wrangler config carries a secret VALUE (names only; values via wrangler secret put — 10-SECRETS-CONTRACT)"; status=1
+  fi
 fi
 
 # 2) 明文掃描:staged 檔內不可含 master 密碼(密碼來源同 seal.sh:get_pass)

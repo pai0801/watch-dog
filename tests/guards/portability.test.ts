@@ -54,11 +54,14 @@ it("A: no secret key leaks into wrangler vars or source", () => {
     }
   }
 
-  // 2. 源碼不得出現 "KEY = '<literal>'" 指派（明文 commit）
+  // 2. 源碼不得出現明文指派 secret：帶引號鍵（"KEY" = 'v'）與無引號鍵（const KEY = 'v'）
+  //    兩形態（TODO-REVIEW #11——原版只認帶引號鍵，註解比實際寬）。
   for (const f of globSync("src/**/*.ts", { cwd: REPO, absolute: true })) {
     const content = readFileSync(f, "utf-8");
     for (const k of keys) {
-      if (new RegExp(`['"]${k}['"]\\s*=\\s*['"][^'"]+['"]`).test(content)) {
+      const quoted = new RegExp(`['"]${k}['"]\\s*=\\s*['"][^'"]+['"]`);
+      const bare = new RegExp(`\\b${k}\\s*=\\s*['"\`]\\S`); // const KEY = "..."（無引號鍵）
+      if (quoted.test(content) || bare.test(content)) {
         violations.push(`${f}: 明文指派 secret ${k}`);
       }
     }
@@ -68,8 +71,11 @@ it("A: no secret key leaks into wrangler vars or source", () => {
 });
 
 // ---------- §B — SQL 必須靜態字面值 + .bind() 參數化（watch-dog 適應版） ----------
-/** §B 掃描核心：抓每個 `.prepare(` 的引數區（到第一個 `.bind(` 或 400 字元），區內出現
- *  `${`（模板內插）或「引號後接 +」（字串串接）即違規——兩者都是把未參數化的值拼進 SQL。 */
+/** §B 掃描核心：每個 `.prepare(` 的引數區（到第一個 `.bind(` 或 400 字元）：
+ *  ① 主規則——引數首個非空白字元必須是 SQL 字面值引號（' " `）。
+ *    非字面值開頭 = 變數/運算式 → 未參數化的動態 SQL（前導變數串接、join()、prebuilt var 全被涵蓋）。
+ *  ② 反向樣式——區內出現 `${`（模板內插）或「引號貼鄰串接」（`'...' +` / `+ '...'`，雙向；
+ *    引號鄰接排除 SQL 算術如 `failure_count + 1`）。誤報方向保守可接受。 */
 function scanPrepareArg(content: string): Array<{ line: number; snippet: string; kind: string }> {
   const hits: Array<{ line: number; snippet: string; kind: string }> = [];
   let idx = 0;
@@ -77,11 +83,16 @@ function scanPrepareArg(content: string): Array<{ line: number; snippet: string;
     const start = idx + ".prepare(".length;
     const bindAt = content.indexOf(".bind(", start);
     const region = content.slice(start, Math.min(bindAt === -1 ? start + 400 : bindAt, start + 400));
-    const kind = region.includes("${")
-      ? "模板內插 ${}"
-      : /['"`]\s*\+\s*\w/.test(region)
-        ? "字串串接 +"
-        : null;
+    // 主規則：跳過空白/換行後，首字元必須是引號（多行 .prepare(\n  `SELECT...` 合法）
+    const firstChar = region.replace(/^[\s]+/, "")[0];
+    const kind =
+      firstChar !== undefined && !['\'', '"', '`'].includes(firstChar)
+        ? "非字面值開頭"
+        : region.includes("${")
+          ? "模板內插 ${}"
+          : /['"`]\s*\+/.test(region) || /\+\s*['"`]/.test(region)
+            ? "字串串接 +"
+            : null;
     if (kind) {
       const line = content.slice(0, idx).split("\n").length;
       hits.push({
@@ -106,21 +117,32 @@ it("B: .prepare() SQL 為靜態字面值，參數一律 .bind()（01 §3 D1 nati
   expect(violations, `SQL 內插/串接違規（改 .bind()，見 01 §3 + 04 raw-SQL 預算）:\n${violations.join("\n")}`).toHaveLength(0);
 });
 
-it("B 自驗（D38）：內插/串接樣本都被攔；靜態字面值 + .bind() 不誤殺", () => {
+it("B 自驗（D38）：內插/串接/非字面值樣本都被攔；靜態字面值 + .bind() 不誤殺", () => {
   const bad = [
     { src: "db.prepare(`SELECT * FROM t WHERE id = ${id}`)", kind: "模板內插" },
     { src: "db.prepare('SELECT ' + cols + ' FROM t')", kind: "字串串接" },
     { src: "db.prepare(`INSERT INTO logs VALUES (${now})`)", kind: "模板內插" },
+    // TODO-REVIEW #10 四逃逸向量（deslop 實測）——主規則「非字面值開頭」全攔
+    { src: "const part = 'SELECT *'; db.prepare(part + ' FROM t')", kind: "前導變數串接" },
+    { src: "db.prepare(['SELECT *','FROM t'].join(' '))", kind: "join() 拼裝" },
+    { src: "const sql = 'SELECT * FROM t WHERE id=' + id; db.prepare(sql)", kind: "prebuilt var" },
+    { src: "db.prepare(`SELECT * FROM t` + where)", kind: "背接串接" },
   ];
   for (const b of bad) {
     expect(scanPrepareArg(b.src), `應攔 (${b.kind}): ${b.src}`).toHaveLength(1);
   }
-  // 限制（誠實記錄）：掃描是字面文本比對——註解/字串內含 `.prepare(` + `${`／`'+` 樣式
-  // 同樣會被攔（誤報方向，保守可接受）；反向混淆向量（前導變數串接等）尚未涵蓋，見 TODO-REVIEW #10。
+  // 限制（誠實記錄）：掃描是字面文本比對——註解/字串內含 `.prepare(` + 危險樣式同樣會被攔
+  //（誤報方向，保守可接受）；「字面值開頭、區內純靜態」之外的重排混淆（如先 bind 後拼接）
+  // 不在此層攔，由 code review + §B 保守面共同把關。
   const good = [
     "db.prepare('SELECT * FROM t WHERE id = ?').bind(id)",
     "db.prepare(`SELECT * FROM checks WHERE monitor = 1`).all()",
     "db.prepare(`INSERT INTO logs (check_id) VALUES (?)`).bind(checkId).run()",
+    // 多行形式：.prepare( 換行後接字面值 —— 首個非空白字元是引號 → 合法
+    "db.prepare(\n  `INSERT INTO logs (check_id, status)\n  VALUES (?, ?)`\n).bind(a, b)",
+    // SQL 內含算術（failure_count + 1 / last_seen + c.interval）不觸發：無引號貼鄰
+    "db.prepare(`UPDATE checks SET failure_count = failure_count + 1 WHERE id = ?`).bind(id)",
+    "db.prepare(`SELECT * FROM checks WHERE (last_seen + interval + grace) < ?`).bind(now)",
   ];
   for (const g of good) {
     expect(scanPrepareArg(g), `不應誤殺: ${g}`).toHaveLength(0);
@@ -172,7 +194,8 @@ it("E: 程式碼實際出現的 vendor binding 都在 touchpoints 內", () => {
   const listed = tpBlock ? [...tpBlock[1]!.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]) : [];
   const KNOWN_BINDINGS = [
     "c.env.DB", "env.DB", "c.env.KV", "env.KV", "c.env.R2", "env.R2",
-    "from 'cloudflare:workers'", "DurableObjectNamespace",
+    // TODO-REVIEW #14：單/雙引號兩形態（repo 無 quotes lint 鎖風格）
+    "from 'cloudflare:workers'", 'from "cloudflare:workers"', "DurableObjectNamespace",
   ];
   const present: string[] = [];
   for (const b of KNOWN_BINDINGS) {
@@ -230,6 +253,10 @@ it("G: wrangler secrets.required 與 manifest [secrets].worker 同步", () => {
   if (declared.size === 0) return; // Layer 1 缺席由首次部署流程處理（#14258），Layer 2（§F）是主力
   const missing = manifestSecrets.filter((k) => !declared.has(k));
   expect(missing, `manifest [secrets].worker 有但 wrangler secrets.required 沒列（見 10 §5.1）:\n${missing.join("\n")}`).toHaveLength(0);
+  // 反向鎖（TODO-REVIEW #12）：wrangler 多列的名稱不在 manifest → 三方 ≡ 破局
+  //（bindings.ts REQUIRED_BINDING_KEYS 不知情、§F 驗不到它）。
+  const extra = [...declared].filter((k) => !manifestSecrets.includes(k));
+  expect(extra, `wrangler secrets.required 有但 manifest [secrets].worker 沒列（三方 ≡，見 10 §5.1）:\n${extra.join("\n")}`).toHaveLength(0);
 });
 
 // ---------- §H — reverse-coverage（worker ∪ optional_worker 擴充） ----------

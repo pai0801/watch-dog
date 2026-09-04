@@ -83,6 +83,20 @@ it("D39: tsconfig noUnusedParameters/noUnusedLocals 啟用", () => {
 // ---------- D5 — cloudflare:workers import 隔離（01 §2 Runtime Gateway） ----------
 it("D5: cloudflare:workers 只能出現在 src/lib/runtime.ts（gateway 尚未建立 → 目前全禁）", () => {
   const files = globSync("src/**/*.ts", { cwd: REPO, absolute: true, ignore: ["src/lib/runtime.ts"] });
-  const violations = files.filter((f) => readFileSync(f, "utf-8").includes("from 'cloudflare:workers'"));
+  // TODO-REVIEW #14：單/雙引號兩形態（repo 無 quotes lint 鎖風格）
+  const violations = files.filter((f) => /from ['"]cloudflare:workers['"]/.test(readFileSync(f, "utf-8")));
   expect(violations, `cloudflare:workers import 隔離違規（01 §2 Runtime Gateway）:\n${violations.join("\n")}`).toHaveLength(0);
+});
+
+// ---------- AGENTS↔CLAUDE 同步（TODO-REVIEW #16 — header 宣稱 [MUST] 兩檔同步，機械鎖） ----------
+it("AGENTS.md 與 CLAUDE.md body 一致（SSoT = CLAUDE.md；僅 header 可不同）", () => {
+  const stripHeader = (s: string) => {
+    const lines = s.split("\n");
+    const firstContent = lines.findIndex((l) => l.startsWith("## "));
+    return lines.slice(firstContent).join("\n");
+  };
+  const claude = stripHeader(readFileSync(join(REPO, "CLAUDE.md"), "utf-8"));
+  const agents = stripHeader(readFileSync(join(REPO, "AGENTS.md"), "utf-8"));
+  expect(claude, "CLAUDE.md 解析後為空（stripHeader regex 失效？）").not.toBe("");
+  expect(agents, "AGENTS.md body 與 CLAUDE.md 不一致——AGENTS.md header 自稱 [MUST] 兩檔同步，改動請同步改兩邊（SSoT = CLAUDE.md）").toBe(claude);
 });
