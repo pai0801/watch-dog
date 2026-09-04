@@ -5,12 +5,19 @@
 
 ## Entries
 
+### [2026-09-04] pre-push hook 環境探測（workerd glibc）＋ CI runner 離線發現
+**目標**：讓本機（glibc 2.31，workerd 不可執行）推得出代碼，同時不靜默放棄 app pool 驗證；並把「CI 會補全量」的預設從未驗證假設改為已驗證事實。
+**原因**：① `scripts/install-git-hooks.sh` 的 pre-push 無條件 `npm test`——app pool 跑在 workerd（glibc ≥ 2.32），host Ubuntu 20.04（glibc 2.31）永遠推不出去（實測 push 被 hook 擋）；② 推送時發現 CI run #1（d8a6c9c，03:46 UTC）queued 11+ 小時——self-hosted runner 離線，且本機無 runner 進程/service/家目錄（backup script 在本機、docker sock 無權限，推測容器化 runner 已停）；③ SECRETS.md/FIX-LOG 先前寫「CI 的 make ci 不受影響」「app pool 由 CI runner 執行」均為未驗證主張——`make ci` → `npm test` → `test:app` → workerd 同樣需要 glibc ≥ 2.32。
+**預期結果**：pre-push 加 workerd 可執行性探測（`node_modules/.bin/workerd --version` exit code）——可執行跑全量 `npm test`；不可執行走「降級模式」typecheck+lint+guards，輸出大聲標示（⚠ 降級模式 + [MUST] 確認 CI 綠）絕不靜默；SECRETS.md「CI runner 離線」段落記錄 queued 實證 + runner 主機 glibc 前提 + 備份停擺影響面；FIX-LOG 舊條目兩處未驗證主張同步更正。
+**範圍**：`scripts/install-git-hooks.sh`（pre-push 探測分支）、`secrets-archive/SECRETS.md`、`FIX-LOG.md`（本條目 + 舊條目驗證段更正）。無 schema 變動、無 secret 值變動。
+**驗證**：降級路徑實測（typecheck ✓ + eslint ✓ + guards 21/21 ✓，輸出含 ⚠ 降級模式標示）；workerd 探測 exit=1 / vitest 探測 exit=0（區分度實測）；runner 離線證據 GitHub API run #1 queued；build＝本專案無 build step（wrangler deploy，環境前置 node ≥ 22 未滿足，首次部署待辦）。app pool 全量仍待 runner 恢復後由 CI 首跑補驗。
+
 ### [2026-09-04] 採用協議補完輪二：Step 4/6 CI 缺口 + seal-check hang + Layer-2 guard 補齊（TODO-REVIEW 16→2）
 **目標**：依 `~/Code/rules/CLAUDE.md` 七步協議逐項驗證補完——機械缺口（hooks 未裝、baseline 無人跑、guard 逃逸向量、文件殘留）全數落地，TODO-REVIEW 16 項清到剩 2 項外部盤點債。
 **原因**：① git hooks 從未安裝（.git/hooks 空）；② `.secrets.baseline` 無任何機制跑它（#13）；③ `seal.sh --check` 的 `get_pass` 在非互動環境讀 stdin 永久阻塞（違反合約「密碼不可得降級 warn」——§L/§M 直跑被 hang 13 分鐘實證）；④ 系統 python3=3.8 無 tomllib，Makefile/smoke/hook 的 §L/§M 必炸；⑤ guard 六個逃逸向量（#9–#12/#14/#15）+ AGENTS↔CLAUDE 無機械鎖（#16）+ CSS 重複定義與不平衡 @media（#1）+ 01-CLAUDE.md 五段範本殘留（#2–#6）；⑥ `worker-configuration.d.ts`（cf-typegen 產物）被追蹤造成 baseline 六個 RFC 範例字串假陽性。
 **預期結果**：hooks 就位（python3.12 探測）；CI 加 baseline freshness step（ENGINEERING_GUIDE §5.2）；seal-check `</dev/null` 不再 hang；§B 主規則「.prepare( 引數非字面值開頭即違規」（四向量 fixture 鎖定）＋引號貼鄰串接（SQL 算術不誤報）；§A 無引號鍵、§G 反向鎖、§E/D5 雙引號、1b `grep -z` 全文（多行 JSONC 注入證明）、AGENTS↔CLAUDE body guard、tests/bindings.test.ts 行為測試；layout.ts 括號深度 0 單一 status-badge；01-CLAUDE.md 五段適配注記；gen 檔 untrack+gitignore。
 **範圍**：`.github/workflows/main.yml`、`.gitignore`、`.secrets.baseline`（refresh）、`secrets-archive/{seal.sh,pre-commit-check.sh}`、`scripts/{install-git-hooks.sh,portability-smoke.sh}`、`Makefile`、`tests/guards/{portability,framework}.test.ts`、`tests/bindings.test.ts`（新）、`src/views/layout.ts`、`01-CLAUDE.md`、`TODO-REVIEW.md`。無 schema 變動、無 secret 值變動。
-**驗證**：guards pool 21/21 ✓；tsc+eslint ✓；§L/§M/archive 三件套 ✓；seal-check 無密碼場景 WARN exit 0（hang 修復）✓；多行 JSONC 注入 FAIL→還原綠（D38）✓；baseline freshness `scan --baseline` exit 0 ✓；style 區括號深度 0 ✓。app pool 本機 glibc 2.31<2.32 無法跑（pre-existing 環境限制，CI self-hosted runner 執行；bindings.test.ts 隨 `npm test` 進 CI）。
+**驗證**：guards pool 21/21 ✓；tsc+eslint ✓；§L/§M/archive 三件套 ✓；seal-check 無密碼場景 WARN exit 0（hang 修復）✓；多行 JSONC 注入 FAIL→還原綠（D38）✓；baseline freshness `scan --baseline` exit 0 ✓；style 區括號深度 0 ✓。app pool 本機 glibc 2.31<2.32 無法跑（pre-existing 環境限制；runner 狀態見後續「CI runner 離線」條目）。
 **事後修正（2f0aabb）**：本輪曾把 `worker-configuration.d.ts`（cf-typegen 產物）untrack+gitignore——回歸：CI fresh checkout 的 typecheck TS2688（tsconfig `types` 引用它；本機/runner node 20 跑不動 wrangler 4.129 的 `wrangler types`（需 node 22），無法再生）。revert 回 committed 策略；教訓：untrack 一個 tsconfig 引用的生成檔前，[MUST] 先驗「無此檔時 typecheck 仍綠」。
 
 ### [2026-09-04] deslop 修復輪：§M fresh-checkout 必紅（CI 接線）＋ coverage report 兩處幻覺＋ repo URL

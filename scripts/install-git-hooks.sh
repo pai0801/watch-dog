@@ -27,8 +27,21 @@ cat > .git/hooks/pre-push <<'EOF'
 # 緊急繞過唯有 --no-verify（[NEVER]，01-CLAUDE §0 CRITICAL）。
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-echo "[pre-push] npm test（app+guards 雙 pool）"
-npm test
+
+# 環境探測：app pool 跑在 workerd（glibc ≥ 2.32，Ubuntu ≥ 20.10）。
+# dev 主機 glibc 2.31 跑不動 workerd——探測失敗時走「降級模式」：
+# 只跑不依賴 workerd 的部分（typecheck+lint+guards），app pool 留給 CI 補全量。
+# 降級 [MUST] 大聲標示，絕不靜默放行；輸出不可被誤讀為全綠。
+if [ -x node_modules/.bin/workerd ] && node_modules/.bin/workerd --version >/dev/null 2>&1; then
+  echo "[pre-push] npm test（app+guards 雙 pool）"
+  npm test
+else
+  echo "[pre-push] ⚠  降級模式：workerd 不可執行（host glibc < 2.32 或未 install）——app pool（workerd 全保真）無法本機執行"
+  echo "[pre-push] ⚠  本地僅跑 typecheck + lint + guards；app pool [MUST] 由 CI 補全量，推送後 [MUST] 確認 CI 綠"
+  npm run typecheck
+  npm run lint
+  npm run test:guards
+fi
 echo "[pre-push] ✓"
 EOF
 

@@ -23,4 +23,6 @@
 全新 Worker 第一次 deploy 前不能設 secret，`wrangler.jsonc secrets.required` 會擋首次部署。流程：
 暫時移除 `secrets` 區塊 → `wrangler deploy` → `wrangler secret put ADMIN_TOKEN`（值 file-sourced，見 10 §6.0）→ 加回區塊 → redeploy。
 
-**環境前置（2026-09-04 實測）**：wrangler 4.129 需 **Node.js ≥ 22**——本 dev 主機 node 20.20 跑不動任何 wrangler 指令（`wrangler types`/`deploy` 都會擋）。首次部署 [MUST] 在 node ≥ 22 環境執行（nvm/容器皆可）；部署後 runtime 為 workerd，不受主機 node 版本影響。CI（self-hosted 同機）的 `make ci` 不含 wrangler 呼叫，不受影響。
+**環境前置（2026-09-04 實測）**：wrangler 4.129 需 **Node.js ≥ 22**——本 dev 主機 node 20.20 跑不動任何 wrangler 指令（`wrangler types`/`deploy` 都會擋）。首次部署 [MUST] 在 node ≥ 22 環境執行（nvm/容器皆可）；部署後 runtime 為 workerd，不受主機 node 版本影響。
+
+**CI runner 狀態（2026-09-04 發現，操作者待辦）**：self-hosted runner 目前**離線**——CI run #1（d8a6c9c，2026-09-04 03:46 UTC）至今 queued 未被拾取。且 `make ci` 含 `npm test` → `test:app` → workerd（需 host glibc ≥ 2.32；本機 2.31）：若 runner 直接跑在這台 Ubuntu 20.04 主機，app pool 同樣跑不動，需容器化 runner（glibc 較新）或升級 runner 主機。runner 離線期間，`Run Backup` step（R2 備份所有 repo）一併停擺。pre-push hook 已加環境探測（workerd 不可執行 → 降級模式 typecheck+lint+guards，大聲標示，app pool 由 CI 補全量）。
