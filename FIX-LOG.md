@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] 首次生產部署完成——helperp@gmail.com 帳號切換（D1 額度解法）＋ #14258 流程＋線上 e2e 驗證
+
+**目標**：完成 watch-dog 首次生產部署（前次嘗試因 paipeter 帳號 D1 Free 額度滿中斷，操作者裁定改用 helperp@gmail.com 帳號建置）。
+**原因**：① 舊帳號 D1 額度滿（10/10 全屬其他專案，無空殼可清）；② 操作者於 `.env` 換上 helperp 帳號憑證；③ 舊帳號端本 session 未建成任何資源（D1 create 被擋、無 deploy、其餘全程唯讀）——確認無需清理。
+**預期結果**：helperp 帳號建 `watch-dog-db`（APAC）→ `wrangler.jsonc database_id` 更新（`2b2ec8c6-87bf-4005-98b9-56658bbda493`）→ 遠端套 `src/db.sql`（冪等）→ #14258 首次 deploy 流程（暫移 `secrets` 區塊 → `wrangler deploy --minify` → `wrangler secret put ADMIN_TOKEN` file-sourced pipe 自 `.dev.vars`（值不進 agent context）→ 區塊加回還原）→ 線上閘門與 e2e 驗證 → SECRETS.md 帳號/部署記錄同步。
+**範圍**：`wrangler.jsonc`（新 database_id＋首次部署完成注記）、`secrets-archive/SECRETS.md`（ADMIN_TOKEN prod 設定、CF 憑證帳號切換、D1 前置段收尾、首次部署完成記錄段）、`.env`（操作者切換 helperp 憑證，非 repo 檔）。無 app 碼變動、無 schema 變動（schema 套的是既有 `src/db.sql`）。
+**驗證**：線上閘門——dashboard 200 ✓、`/admin` 無憑證 401 ✓、`POST /api/pulse` 無 token 401 ✓、`/api/status` 200（D1 讀路徑活）✓；**e2e 煙霧**——`PUT /api/config` 註冊 `smoke-test` 專案＋check（checks_registered:1）→ `POST /api/pulse`（success，`smoke-test:deploy-smoke`）→ `/api/status/smoke-test` 驗 `last_seen` 已寫入、`is_stale=false` → 測試資料 D1 `DELETE` 清除（`/api/status` projects:0）✓；`wrangler secret list` = ADMIN_TOKEN ✓；deploy 輸出 `https://watch-dog.helperp.workers.dev`、cron `* * * * *` 已啟動、version `5d08ce4e`。**操作者後續**：`/admin` 設定 Slack 頻道（alert 鏈在 Slack token 未設時不發送，空態安全）；`env.7z` re-seal；舊 paipeter token 作廢確認。
+
 ### [2026-09-05] 雙軸 code-review 收尾輪：文件漂移三處＋sent-log 誤 commit＋去重兩形態＋環境升級現形的潛在測試 bug
 
 **目標**：清償 2026-09-05 雙軸 code-review（Standards/Spec 平行 sub-agent，範圍 `2fd00ff...HEAD` 30 commits）全部可行動 findings，並處理驗證途中現形的存量測試 bug。

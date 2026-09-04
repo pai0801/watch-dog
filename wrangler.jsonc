@@ -8,12 +8,12 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-01-28",
 
-	// D1 Database binding
+	// D1 Database binding（prod = helperp@gmail.com 帳號，2026-09-05 建；舊 id 920a2626 從未存在，見 SECRETS.md）
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "watch-dog-db",
-			"database_id": "920a2626-0afb-4b2b-9324-85004aa10b49"
+			"database_id": "2b2ec8c6-87bf-4005-98b9-56658bbda493"
 		}
 	],
 
@@ -35,6 +35,7 @@
 	// before its first deploy, and secrets.required blocks that deploy. First
 	// deploy flow: temporarily remove this "secrets" block → wrangler deploy →
 	// wrangler secret put ADMIN_TOKEN → add the block back (10 §5.1).
+	// (2026-09-05 已依此流程完成首次部署——平時這個區塊 [MUST] 保持在位。)
 	"secrets": {
 		"required": ["ADMIN_TOKEN"]
 	}
