@@ -12,6 +12,7 @@
 **範圍**：`scripts/install-git-hooks.sh`（pre-push 探測分支）、`secrets-archive/SECRETS.md`、`FIX-LOG.md`（本條目 + 舊條目驗證段更正）。無 schema 變動、無 secret 值變動。
 **驗證**：降級路徑實測（typecheck ✓ + eslint ✓ + guards 21/21 ✓，輸出含 ⚠ 降級模式標示）；workerd 探測 exit=1 / vitest 探測 exit=0（區分度實測）；runner 離線證據 GitHub API run #1 queued；build＝本專案無 build step（wrangler deploy，環境前置 node ≥ 22 未滿足，首次部署待辦）。app pool 全量仍待 runner 恢復後由 CI 首跑補驗。
 **補記（node 22 工具鏈驗證）**：user-space node v22.14.0 tarball（免 sudo/nvm）在本機實測 `wrangler --version` 4.129.0 ✓、`wrangler types` ✓、`wrangler deploy --dry-run` ✓（127.60 KiB bundle、D1 binding 認得）——首次部署工具鏈本機已證可用，recipe 更新至 SECRETS.md；`wrangler types` 重跑僅動 baseline `generated_at`（已還原，維持 read-only gate 紀律）。
+**補記 2（dev 工作流斷點 + cycle-1 R4 幻覺更正）**：node 22 下 `wrangler dev` 實測**仍失敗**——workerd 是獨立 binary，node 版本救不了 glibc 需求；本機 bisect 實證 workerd 1.20231218.0 為最後 glibc-2.31 相容版（1.20240731.0 起全擋），即 AGENTS.md 記載的 dev-tunnel.sh 工作流在本機從未可跑（與 wrangler 升級無關，非本輪回歸）。回溯更正：cycle-1 REFLECT R4「`npm test` app pool 60/60 + dry-run 綠（4.129）」在本機物理上不可能成立（沿襲 d8a6c9c 修復的報告幻覺模式）——已劃記更正，正確驗證環境為 CI runner；AGENTS.md/CLAUDE.md「Dev 啟動」段補環境限制表（workerd ❌ / wrangler CLI ⚠ node≥22 / pre-push 降級），移除舊主機 IP 192.168.1.200 殘留。
 
 ### [2026-09-04] 採用協議補完輪二：Step 4/6 CI 缺口 + seal-check hang + Layer-2 guard 補齊（TODO-REVIEW 16→2）
 **目標**：依 `~/Code/rules/CLAUDE.md` 七步協議逐項驗證補完——機械缺口（hooks 未裝、baseline 無人跑、guard 逃逸向量、文件殘留）全數落地，TODO-REVIEW 16 項清到剩 2 項外部盤點債。

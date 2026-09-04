@@ -32,6 +32,7 @@
 - **環境相依斷言要先實測再寫進文件**：「CI 會補全量」在 runner 離線的世界裡是幻覺——寫下任何依賴外部系統狀態的主張前，先查它的實際狀態（GitHub API 一發 curl 就能驗證 queued 11h+）。
 - **hook/gate 設計要考慮執行環境能力**：gatekeeper 若只在特定環境可執行（workerd 需 glibc ≥ 2.32），必須提供誠實降級路徑（大聲標示 + 明示補償機制），否則逼操作者 --no-verify 繞過——比降級更糟。
 - **推送是離散驗證點**：本地再綠也只是半程；「remote 已收 + CI 已綠」才是完整回饋環。堆 9 個未推送 commit 的狀態本身就是要主動清掉的債。
+- **dev 工作流也要實測**：`wrangler dev` 用戶端過了 node 22 這關，仍死於 workerd glibc（workerd 是獨立 binary，node 版本救不了它）——「升級 node 解鎖 dev」是錯的推論；本機 bisect 實證 workerd 1.20231218.0 為最後 glibc-2.31 相容版。同輪回頭抓出 cycle-1 R4「app pool 60/60」在物理上不可能的宣稱並更正——幻覺主張會隨時間沉積，逐條實測才是解藥。
 
 ---
 
@@ -82,7 +83,7 @@
 
 ### R4 驗證證據
 
-- `npm run typecheck` 綠（noUnused×2 開啟後零錯）；`npm test` app pool 60/60；guards pool 全綠（§A–§K + D18–D21）；`wrangler deploy --dry-run` 綠且 schema 認得 `secrets`（4.129）；portability-smoke 全綠。
+- `npm run typecheck` 綠（noUnused×2 開啟後零錯）；~~`npm test` app pool 60/60~~（**事後更正（深夜輪）**：本機 glibc 2.31 連 2023-12 之後任何 workerd 都跑不動（bisect 實證：1.20231218.0 為最後可跑版），此宣稱在本機物理上不可能成立——沿襲 d8a6c9c 修復的「報告幻覺」模式，正確驗證環境為 CI runner（現離線）；wrangler `deploy --dry-run` 同理需 node ≥ 22 才可能）；guards pool 全綠（§A–§K + D18–D21，Node-pool 檔案掃描，本機可跑）；portability-smoke 全綠。
 
 ### R5 經驗記錄
 

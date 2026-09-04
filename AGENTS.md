@@ -24,7 +24,7 @@
 ## Dev 啟動
 
 ```bash
-# 只啟動本地服務 (http://192.168.1.200:8789)
+# 只啟動本地服務（Network IP 以 `ip -4 addr` 實際值為準，本檔歷史寫過 192.168.1.200 為舊主機殘留）
 DEV_PORT=8789 ./dev-tunnel.sh
 
 # 啟動 + ngrok tunnel
@@ -34,12 +34,13 @@ DEV_PORT=8789 ./dev-tunnel.sh ngrok
 ./dev-tunnel.sh stop
 ```
 
-### 環境
+### 環境限制（2026-09-04 實測）
 
-| 項目 | 值 |
+| 項目 | 狀態 |
 |------|-----|
-| **Port** | 8789 |
-| **Network URL** | http://192.168.1.200:8789 |
+| **workerd（dev server / app pool）** | ❌ 本機 glibc 2.31 < 2.32 需求——`wrangler dev`（含 node 22 下）與 `npm run test:app` 均不可執行；dev 需 glibc ≥ 2.32 環境（容器/新主機） |
+| **wrangler CLI（deploy/types）** | ⚠ 需 node ≥ 22——user-space tarball 免 sudo方案已驗證（見 `secrets-archive/SECRETS.md` 首次部署段） |
+| **pre-push hook** | workerd 不可執行時自動降級（typecheck+lint+guards，大聲標示），app pool 留 CI 補全量 |
 
 ## 專案資訊
 
