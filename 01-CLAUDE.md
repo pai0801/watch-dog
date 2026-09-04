@@ -109,6 +109,9 @@ Vitest 測試掃描源碼模式違規。每個 guard 有 `MAX_*` 常數，只能
 
 ## 7. i18n 規範
 
+> **watch-dog 裁定：N/A（2026-09-04，TODO-REVIEW #3）**——單操作者內部監控工具，UI 字串硬編英
+> 文、無受眾需要多語；下表為框架範本（多語內容站適用），本專案不採用。
+
 | 規則 | 指令 |
 |---|---|
 | 所有使用者面對文本透過 `t('key')` | [MUST] |
@@ -120,6 +123,9 @@ Vitest 測試掃描源碼模式違規。每個 guard 有 `MAX_*` 常數，只能
 ---
 
 ## 8. R2 與儲存規範
+
+> **watch-dog：無 R2/KV binding（TODO-REVIEW #4）**——本專案僅 D1；下表 R2/KV 條目 N/A，
+> 「`R2.get()` 可 null」等通用防 null 紀律保留精神適用於 D1 查詢。Drizzle 條目不適用（無 ORM，見 §3）。
 
 | 規則 | 指令 |
 |---|---|
@@ -144,28 +150,28 @@ Vitest 測試掃描源碼模式違規。每個 guard 有 `MAX_*` 常數，只能
 > 防時序攻擊，見 `src/routes/api.ts`），admin 採單操作者 Basic Auth。多租戶感知升級時
 > 改遵循 `PLATFORM-CONTRACTS.md`（rules 11 對照表），[NEVER] 降級回 rules 11 底線。
 
-| 邏輯類型 | 位置 |
+| 邏輯類型 | 位置（watch-dog 真實邊界） |
 |---|---|
-| DB 查詢 | Astro frontscript (`---` 區塊) |
-| 使用者互動 / 即時狀態 | Svelte components ($state, $derived) |
-| 靜態數據渲染 | Astro template |
+| DB 查詢 + 商業邏輯 | `src/services/`（logic/settings/alert/maintenance）— 深模組，路由層不寫 SQL |
+| HTTP 路由 / auth / 過濾 | `src/routes/`（api/admin/dashboard）+ `src/middleware/`、`src/lib/` |
+| HTML 渲染 | `src/views/`（hono/html 視圖）— 無 Astro/Svelte/hydration |
+| 定時偵測 | `src/cron.ts`（每分鐘 scheduled handler） |
 
-| 資料隔離規則 | 指令 |
+| 資料隔離規則（watch-dog） | 指令 |
 |---|---|
-| 多租戶查詢 WHERE 必須含 tenantId/slug 過濾器 | [MUST] |
-| 核心實體用 `deletedAt` 軟刪除，禁止物理 DELETE | [MUST] |
-| D1 事務 < 5ms，事務中禁止 SELECT | [MUST] |
-| 行業特定數據存 JSON metadata 欄位，不擴展主 schema | [MUST] |
-| 暴露記錄用前綴 ID（`str_`/`itm_`/`ord_`）+ nanoid | [MUST] |
-| 資料驗證失敗返回 `null`，不渲染空容器 | [MUST] |
+| pulse/查詢一律經 project token 解析 `project_id` 後過濾 | [MUST] |
+| admin 走單操作者 Basic Auth（`src/middleware/adminAuth.ts`） | [MUST] |
+| token 比對用 `timingSafeEqual`（防時序攻擊） | [MUST] |
+| 多租戶查詢 tenantId 過濾 | N/A（非多租戶，見本節頂部標註） |
 
-Hydration：Admin `client:load` / Below-fold `client:visible` / SEO 關鍵內容不 hydrate。
-CSS：Admin 元件 [MUST] import CSS 檔，[NEVER] 依賴 Svelte scoped `<style>`，用 BEM 命名。
-詳細模式見 `references/COMPONENT_PATTERNS.md`。
+~~Hydration / BEM / Svelte scoped style 條目~~：N/A（無元件框架）；CSS 集中於 `src/views/layout.ts` 單一真源。
 
 ---
 
 ## 10. SEO 鐵三角
+
+> **watch-dog：N/A（TODO-REVIEW #5）**——dashboard/admin 均為 noindex 監控工具，非公開內容站，
+> 無 sitemap/JSON-LD 受眾；路由變更三維一致性紀律保留供未來公開頁面時啟用。
 
 路由變更觸發三維強制一致性：**UI/Route** + **Breadcrumbs** + **SEO Artifacts**（sitemap.xml, JSON-LD）。
 
@@ -201,6 +207,9 @@ CSS：Admin 元件 [MUST] import CSS 檔，[NEVER] 依賴 Svelte scoped `<style>
 ---
 
 ## 14. UI 設計原則
+
+> **watch-dog：既有 UI 為 legacy accepted（TODO-REVIEW #6）**——現存 Pico.css + custom CSS
+> 不重造；新頁面遵循本節精神（避免清單照用），Tailwind 遷移另案裁決。
 
 **避免**：圖標+圓角背景標題 / 千篇一律卡片網格 / Hero metrics 布局 / 漸層文字 / glassmorphism
 

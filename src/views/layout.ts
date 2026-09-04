@@ -148,25 +148,6 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
     [x-cloak] {
       display: none !important;
     }
-    .status-badge {
-      padding: 0.25rem 0.5rem;
-      border-radius: 0.25rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .status-badge.ok {
-      background: rgba(46, 204, 113, 0.2);
-      color: #2ecc71;
-    }
-    .status-badge.error {
-      background: rgba(231, 76, 60, 0.2);
-      color: #e74c3c;
-    }
-    .status-badge.dead {
-      background: rgba(127, 140, 141, 0.2);
-      color: #95a5a6;
-    }
     /* Admin dashboard styles */
     .admin-dashboard .grid {
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -376,13 +357,11 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
           padding: 0.5rem 0.25rem !important;
         }
       }
-    }
 
       /* Checks table */
       .checks-table {
         min-width: max-content;
       }
-    }
 
     /* Admin Dashboard - Tablet */
     @media (min-width: 640px) and (max-width: 1024px) {
@@ -398,6 +377,7 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
         max-width: 1400px;
         margin: 0 auto;
       }
+    }
     }
   </style>
 </head>

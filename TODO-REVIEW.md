@@ -7,24 +7,27 @@
 
 ## 舊債（存量，排程處理）
 
+> 2026-09-04 協議補完輪後狀態：16 項中 14 項已清償（#9–#16 見 88b0a3c / 3ad4bf7；#1–#6 見本輪 docs/CSS commit）。
+> 剩 #7/#8 屬「需外部盤點/操作者決策」型債，保留 open 流動。
+
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
 |---|---|---|---|---|
-| 1 | `src/views/layout.ts`（`<style>` 內 `.status-badge` 系列定義**兩次**，另 `.checks-table` 相關規則有不平衡的巢狀 `@media`） | 14 §2.4 複本漂移（同一規則兩份，改一份漏一份的典型溫床） | CSS 去重合併為單一定義；順帶修 `@media` 巢狀錯位 | open |
-| 2 | `01-CLAUDE.md` §9 表格主體（Astro frontscript / Svelte hydration / BEM CSS 列） | 框架範本殘留——watch-dog 無 Astro/Svelte（§9 頂部已加 watch-dog 適配注記，表格本體未改寫） | 將表格改寫為 watch-dog 真實邊界（route/service/view 分層）或整段標 N/A | open |
-| 3 | `01-CLAUDE.md` §7 i18n | watch-dog UI 字串硬編英文，無 `t('key')`；單操作者內部工具 | 裁定：declined（單操作者工具，i18n 無受眾）→ 在 §7 加 N/A 注記 | open |
-| 4 | `01-CLAUDE.md` §8 R2 規範 | 本專案無 R2 binding | 在 §8 加 N/A 注記（保留通用禁止事項） | open |
-| 5 | `01-CLAUDE.md` §10 SEO 鐵三角 | dashboard/admin 為 noindex 監控工具，非公開內容站 | 在 §10 加 N/A 注記 | open |
-| 6 | `01-CLAUDE.md` §14 UI 設計原則 | §14 偏好 Tailwind + OKLCH；watch-dog 實際 Pico.css + custom CSS（現存 UI） | 標註既有 UI 為 legacy accepted；新頁面遵循 §14 精神（不重造既有 UI） | open |
+| 1 | `src/views/layout.ts` CSS | ~~`.status-badge` 定義兩次＋不平衡巢狀 `@media`~~ | 去重為單一定義；`@media` 括號平衡修復（295 區塊少一個關閉、364 巢狀後多兩個） | **已清償 2026-09-04**（本輪） |
+| 2 | `01-CLAUDE.md` §9 表格主體 | ~~框架範本殘留~~ | 表格改寫為 watch-dog 真實邊界（routes/services/views/cron 分層 + per-project scoping 規則） | **已清償 2026-09-04**（本輪） |
+| 3 | `01-CLAUDE.md` §7 i18n | ~~無 N/A 注記~~ | 裁定 declined（單操作者工具）→ §7 加 N/A 注記 | **已清償 2026-09-04**（本輪） |
+| 4 | `01-CLAUDE.md` §8 R2 規範 | ~~無注記~~ | §8 加 N/A 注記（無 R2/KV binding） | **已清償 2026-09-04**（本輪） |
+| 5 | `01-CLAUDE.md` §10 SEO 鐵三角 | ~~無注記~~ | §10 加 N/A 注記（noindex 監控工具） | **已清償 2026-09-04**（本輪） |
+| 6 | `01-CLAUDE.md` §14 UI 設計原則 | ~~無注記~~ | 標 legacy accepted；新頁面遵循 §14 精神 | **已清償 2026-09-04**（本輪） |
 | 7 | `src/services/settings.ts` env-fallback（`SLACK_*` 環境變數）與 `.dev.vars.example` 的 `SLACK_*` | 雙真相來源：DB `settings` 表為主、env 為 legacy fallback（`.portability.toml` 已列 `optional_worker`） | 標 deprecated；訂移除時機（e.g. 兩個專案遷移到 DB settings 後刪 fallback 代碼） | open |
 | 8 | `src/routes/api.ts` legacy `X-Project-Token` header | 新舊並存的接受面（Bearer 為主）；舊客戶端相依 | 盤點仍在用 legacy header 的上報端，全數遷移後移除 | open |
-| 9 | `src/index.ts` `assertBindings` 包裝層 | 無 app-pool 直接單元測試（§I guard 驗證接線存在，非執行路徑行為） | 補一個「缺 ADMIN_TOKEN 時 fetch 回 500」的 workerd-pool 測試 | open |
-| 10 | `tests/guards/portability.test.ts::§B` `scanPrepareArg` | deslop 實測漏攔四向量：前導變數串接（`db.prepare(part + ' FROM t')`）、`['a','b'].join()`、prebuilt var（`const sql='..'+x; db.prepare(sql)`）、>400 字元後才出現 `+`——CLAUDE.md invariant ③「拼接 SQL 預算 = 0（guard 鎖定）」overpromise | guard 加「`.prepare(` 參數非字面值開頭即違規」主規則＋反向樣式 `\w\s*\+\s*['"\`]`＋四向量 fixture 鎖定（D38 注入證明） | open |
-| 11 | `tests/guards/portability.test.ts::§A` src 掃描 | regex 只抓帶引號鍵形態（`['"]KEY['"] = "v"`）；`const KEY = "v"`（無引號鍵）與 backtick 值逃過——註解宣稱比實際寬 | 加無引號鍵樣式 `^\s*[A-Z][A-Z0-9_]+\s*=\s*['"\`]` 或收窄註解宣稱 | open |
-| 12 | `tests/guards/portability.test.ts::§G` | 只鎖 manifest→wrangler 單向；wrangler.jsonc 多列名稱不被抓（bindings.ts「三方 ≡」宣稱只半鎖） | 補反向：wrangler `secrets.required` ⊆ manifest worker | open |
-| 13 | `.secrets.baseline` | 一次性 detect-secrets 掃描證據（2026-09-04 據以發現 docs/plans 洩漏），無任何持續 hook 跑它（工具 user-level 安裝，CI 無保證） | 接 pre-push/CI 掃描（`detect-secrets scan --baseline`）或明示宣告一次性證據定位 | open |
-| 14 | D5/§E import 掃描（`framework.test.ts` / `portability.test.ts`） | `from 'cloudflare:workers'` 只配單引號；雙引號 import 逃過（repo 無 quotes lint 鎖風格） | pattern 改 `['"]` 兩引號 | open |
-| 15 | `secrets-archive/pre-commit-check.sh` §1b 值級掃描 | 行本位 grep 漏多行 JSONC（`"KEY":\n  "value"` 實測 escape；其餘 TOML/JSONC 單雙引號四形態皆攔得住） | 改 python 全文 regex（`\s*` 自然跨行）或 `grep -z` | open |
-| 16 | `AGENTS.md` = `CLAUDE.md` 內文逐字複製（80 行） | header 自認 [MUST] 兩檔同步＝人工漂移陷阱（無機械驗證） | 加 guard/CI diff check（兩檔 body 不一致即紅）或改薄指標 | open |
+| 9 | `src/index.ts` `assertBindings` 包裝層 | 無 app-pool 直接單元測試（§I guard 驗證接線存在，非執行路徑行為） | ~~補 workerd-pool 測試~~ → `tests/bindings.test.ts`（fetch entry throw + 單元層；app pool 本機 glibc 限制由 CI runner 執行） | **已清償 2026-09-04**（88b0a3c） |
+| 10 | `tests/guards/portability.test.ts::§B` `scanPrepareArg` | ~~deslop 實測漏攔四向量~~ | 主規則「.prepare( 引數非字面值開頭即違規」＋四向量 fixture 鎖定（D38）；SQL 算術誤報以引號貼鄰樣式排除 | **已清償 2026-09-04**（88b0a3c） |
+| 11 | `tests/guards/portability.test.ts::§A` src 掃描 | ~~regex 只抓帶引號鍵形態~~ | 加無引號鍵樣式 `\bKEY\s*=\s*['"\`]\S`（帶/無引號鍵雙形態） | **已清償 2026-09-04**（88b0a3c） |
+| 12 | `tests/guards/portability.test.ts::§G` | ~~只鎖 manifest→wrangler 單向~~ | 補反向：wrangler `secrets.required` ⊆ manifest worker | **已清償 2026-09-04**（88b0a3c） |
+| 13 | `.secrets.baseline` | ~~無任何持續 hook 跑它~~ | CI workflow 加 baseline freshness step（ENGINEERING_GUIDE §5.2）；本機裝 detect-secrets 1.5.0（--user） | **已清償 2026-09-04**（3ad4bf7） |
+| 14 | D5/§E import 掃描（`framework.test.ts` / `portability.test.ts`） | ~~`from 'cloudflare:workers'` 只配單引號~~ | pattern 改 `['"]` 兩引號 | **已清償 2026-09-04**（88b0a3c） |
+| 15 | `secrets-archive/pre-commit-check.sh` §1b 值級掃描 | ~~行本位 grep 漏多行 JSONC~~ | 改 `grep -zE` 全文比對；多行 JSONC 注入證明 FAIL→還原綠（D38） | **已清償 2026-09-04**（88b0a3c） |
+| 16 | `AGENTS.md` = `CLAUDE.md` 內文逐字複製（80 行） | ~~無機械驗證~~ | framework.test.ts 加 guard：兩檔 body（首個 `## ` 起）不一致即紅 | **已清償 2026-09-04**（88b0a3c） |
 
 ## 複本盤點確認非債項（避免重複調查）
 
