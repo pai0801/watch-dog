@@ -79,24 +79,24 @@ kill_port() {
 
 # 啟動 wrangler dev
 start_dev() {
-    log_info "啟動 ${PROJECT_NAME} dev server (port $port)..."
+    log_info "啟動 ${PROJECT_NAME} dev server (port $PORT)..."
 
     mkdir -p /tmp
     local log_file="/tmp/${PROJECT_NAME}-dev.log"
 
     # 啟動 wrangler dev
-    $WRANGLER_CMD --local --ip 0.0.0.0 --port "$port" > "$log_file" 2>&1 &
+    $WRANGLER_CMD --local --ip 0.0.0.0 --port "$PORT" > "$log_file" 2>&1 &
     local dev_pid=$!
 
     # 等待啟動
     sleep 5
 
     # 檢查是否成功啟動
-    if curl -s "http://127.0.0.1:$port/" > /dev/null 2>&1 || \
-       curl -s "http://127.0.0.1:$port" > /dev/null 2>&1; then
+    if curl -s "http://127.0.0.1:$PORT/" > /dev/null 2>&1 || \
+       curl -s "http://127.0.0.1:$PORT" > /dev/null 2>&1; then
         log_success "Dev server 已啟動 (PID: $dev_pid)"
-        echo -e "  ${GREEN}Local:${NC}     http://127.0.0.1:$port/"
-        echo -e "  ${GREEN}Network:${NC}   http://192.168.1.200:$port/"
+        echo -e "  ${GREEN}Local:${NC}     http://127.0.0.1:$PORT/"
+        echo -e "  ${GREEN}Network:${NC}   http://192.168.1.200:$PORT/"
     else
         log_error "Dev server 啟動失敗，查看日誌: tail -f $log_file"
         return 1
