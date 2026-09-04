@@ -13,6 +13,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Env Preflight (node>=22 + glibc>=2.32)
+        # runner 恢復在錯環境時，第一步就給可行動訊息，而非 make ci 噴難懂 GLIBC 錯。
+        # 詳情：scripts/check-env.sh 註解 / SECRETS.md 環境限制表。
+        run: bash scripts/check-env.sh
+
       - name: Install Dependencies
         run: make install
 

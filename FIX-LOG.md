@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-04] CI workflow 環境前置補齊——check-env.sh preflight + engines 宣告（第三個 gate 的環境誠實化）
+
+**問題**：三個 gate 中 pre-push（91d9e10）與 smoke（a4894ee）已環境探測，唯 CI workflow 無任何前置——runner 恢復在 node 20 / glibc < 2.32 容器時，`make ci` 會在 npm install（wrangler 4.129 engines）或 app pool（workerd）噴難懂錯誤，且 `package.json` 無 engines 宣告。
+**原因**：環境限制是本 session 才實測確立的（node 22 前置、glibc 2.32 斷點），workflow 寫於此之前；「同型 bug 成群」教訓的第三處呼叫點。
+**修復**：① `scripts/check-env.sh`（hard-fail preflight：node ≥ 22 + glibc ≥ 2.32，可行動訊息指路 SECRETS.md；ldd 缺失時 ⚠ 手動確認）；② workflow 第一步 `Env Preflight`；③ `package.json` engines node >=22。CI 需全量環境故 hard-fail（與開發機降級模式互補，腳本註解明示分工）。
+**驗證**：本機（node 20.20.2 + glibc 2.31）實測 rc=1 兩訊息齊全；mock node22+glibc2.35 stub 驗 ✓ 成功路徑 rc=0；開發中修掉兩個自產 bug——`ldd | head` pipefail SIGPIPE 提前炸（141）、非數字 NODE_MAJOR fail-open（mock stub 揭露）→ fail-closed 加固；tsc ✓ eslint ✓ guards 21/21 ✓。
+
+
 ### [2026-09-04] fresh-clone bootstrap 實測：node requires 20→22 更正 + restore.sh 同型 hang 修復
 **目標**：驗證「fresh clone 可重建」承諾（09 §1.1 portability 承重牆）在本機的真實行為，並修實測發現的缺陷。
 **原因**：① bootstrap [0/5] 宣稱 requires `node>=20` 但 wrangler 4.129 實測硬擋 <22（fresh clone 上 [2/5] cf-typegen 即敗）——requires 檢查說謊；② restore.sh 的 `get_pass` 有 seal.sh 已修的同型 hang（`read -rs` 無密碼非互動環境永久阻塞）——bootstrap [3/5] fresh clone 會 hang；③ #7 移除後仍有殘留引用（admin-settings-ui-summary.md 的 `getEnvWithFallback`、SECRETS.md/bindings.ts 的 `getEffectiveSettings`）。
