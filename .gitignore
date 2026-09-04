@@ -15,8 +15,6 @@ dist/
 node_modules/
 .wrangler
 
-# generated (cf-typegen; wrangler types regenerates)
-worker-configuration.d.ts
 
 # env
 .env
