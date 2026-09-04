@@ -9,6 +9,7 @@
 import { Hono } from 'hono';
 import type { AppBindings, Check, ConfigPayload, Project, PulsePayload } from '../types';
 import { extractProjectToken, authenticateProject, timingSafeEqual } from '../lib/auth';
+import { clampInt, isValidCheckName, isValidProjectId } from '../lib/validate';
 import { processCheckResult } from '../services/logic';
 import { setMaintenance } from '../services/maintenance';
 
@@ -40,6 +41,15 @@ api.put('/api/config', async (c) => {
       return c.json({ error: 'Missing required fields: project_id, display_name' }, 400);
     }
 
+    // Project ids are interpolated into URLs, HTML attributes and check ids —
+    // constrain the charset at ingestion instead of trusting output escaping.
+    if (!isValidProjectId(project_id)) {
+      return c.json(
+        { error: 'Invalid project_id: use 1-63 chars of lowercase letters, digits or hyphens (must start alphanumeric)' },
+        400
+      );
+    }
+
     if (!checks || !Array.isArray(checks)) {
       return c.json({ error: 'Missing or invalid checks array' }, 400);
     }
@@ -67,15 +77,16 @@ api.put('/api/config', async (c) => {
       .run();
 
     // Upsert checks
+    let registered = 0;
     for (const checkConfig of checks) {
       const {
         name,
         display_name: checkDisplayName,
         type,
-        interval = 300,
-        grace = 60,
-        threshold = 1,
-        cooldown = 900,
+        interval: rawInterval = 300,
+        grace: rawGrace = 60,
+        threshold: rawThreshold = 1,
+        cooldown: rawCooldown = 900,
       } = checkConfig;
 
       // Validate check config
@@ -86,6 +97,19 @@ api.put('/api/config', async (c) => {
       if (type !== 'heartbeat' && type !== 'event') {
         continue;
       }
+
+      // Check names become `{projectId}:{name}` ids rendered in URLs and the
+      // admin UI; constrain the charset at ingestion.
+      if (!isValidCheckName(name)) {
+        continue;
+      }
+
+      // Clamp numerics so nonsense values (interval=0, negative grace,
+      // strings) cannot silently break the dead-man's-switch math.
+      const interval = clampInt(rawInterval, 10, 300);
+      const grace = clampInt(rawGrace, 0, 60);
+      const threshold = clampInt(rawThreshold, 1, 1);
+      const cooldown = clampInt(rawCooldown, 0, 900);
 
       const checkId = `${project_id}:${name}`;
 
@@ -123,13 +147,14 @@ api.put('/api/config', async (c) => {
           cooldown
         )
         .run();
+      registered++;
     }
 
     return c.json({
       success: true,
       project_id,
       message: 'Configuration updated',
-      checks_registered: checks.length,
+      checks_registered: registered,
     });
   } catch (error) {
     console.error('Config error:', error);

@@ -152,6 +152,142 @@ describe('processCheckResult — failure transitions', () => {
   });
 });
 
+describe('per-check cooldown overrides the global silence period', () => {
+  it('a short cooldown lets an alert through while global silence would suppress it', async () => {
+    const project = await seedProject();
+    // Global silence is 3600s; this check wants a 60s cooldown and was
+    // alerted 100s ago — under the old code (global only) it stayed muted
+    // for an hour, which is the bug.
+    const check = await seedCheck(project.id, { cooldown: 60, last_alert_at: nowSec() - 100 });
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+
+    expect(slackCalls.length).toBe(1);
+    expect((await getCheck(check.id))?.status).toBe('dead');
+  });
+
+  it('cooldown=0 falls back to the global silence period', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { cooldown: 0, last_alert_at: nowSec() - 100 });
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+
+    expect(slackCalls.length).toBe(0); // global 3600s still silences
+  });
+});
+
+describe('alert channel routing', () => {
+  const channelOf = (call: string) => (JSON.parse(call) as { channel: string }).channel;
+
+  it('routes critical (dead) alerts to the critical channel', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id);
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+
+    expect(slackCalls.length).toBe(1);
+    expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_critical);
+  });
+
+  it('routes warning (error) alerts to the warning channel', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { threshold: 2, failure_count: 1 });
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down');
+
+    expect(slackCalls.length).toBe(1);
+    expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_warning);
+  });
+
+  it('routes recovery alerts to the success channel', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { status: 'dead', failure_count: 1 });
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse received');
+
+    expect(slackCalls.length).toBe(1);
+    expect(channelOf(slackCalls[0])).toBe(TEST_SLACK.channel_success);
+  });
+});
+
+describe('concurrency invariants (D1 CAS)', () => {
+  it('a dead-mark never clobbers a fresher pulse', async () => {
+    const project = await seedProject();
+    // The cron fetched this stale object...
+    const check = await seedCheck(project.id, { last_seen: nowSec() - 3600 });
+    // ...but the service pulsed a moment later, before the cron's UPDATE ran.
+    const fresher = nowSec();
+    await DB.prepare('UPDATE checks SET last_seen = ? WHERE id = ?').bind(fresher, check.id).run();
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('ok'); // pulse state preserved
+    expect(updated?.last_seen).toBe(fresher);
+    expect(updated?.failure_count).toBe(0); // dead-path increment never ran
+    expect(await countLogs(check.id)).toBe(0); // no log for the aborted transition
+    expect(slackCalls.length).toBe(0); // and certainly no alert
+  });
+
+  it('dead-marking preserves last_seen (when the service was actually heard from)', async () => {
+    const project = await seedProject();
+    const lastSeen = nowSec() - 3600;
+    const check = await seedCheck(project.id, { last_seen: lastSeen });
+
+    await processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!');
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('dead');
+    expect(updated?.last_seen).toBe(lastSeen); // not stamped with "now"
+  });
+
+  it('two overlapping dead-marks produce exactly one alert and one increment', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { last_seen: nowSec() - 3600 });
+
+    // Same stale object, as two cron runs that fetched the row concurrently.
+    await Promise.all([
+      processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!'),
+      processCheckResult(DB, TEST_ENV, check, project, 'dead', 'Heartbeat missed!'),
+    ]);
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('dead');
+    expect(updated?.failure_count).toBe(1); // incremented once
+    expect(slackCalls.length).toBe(1); // alerted once
+  });
+
+  it('concurrent error pulses count every failure but alert once', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { threshold: 1 });
+
+    await Promise.all([
+      processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down #1'),
+      processCheckResult(DB, TEST_ENV, check, project, 'error', 'db down #2'),
+    ]);
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('error');
+    expect(updated?.failure_count).toBe(2); // both pulses counted (SQL-atomic)
+    expect(slackCalls.length).toBe(1); // but the alert claim was won once
+  });
+
+  it('concurrent ok pulses after a failure yield exactly one recovery alert', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { status: 'dead', failure_count: 1 });
+
+    await Promise.all([
+      processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse A'),
+      processCheckResult(DB, TEST_ENV, check, project, 'ok', 'Pulse B'),
+    ]);
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('ok');
+    expect(updated?.failure_count).toBe(0);
+    expect(slackCalls.length).toBe(1); // single recovery notification
+  });
+});
+
 describe('findDeadChecks', () => {
   it('returns only stale, monitored heartbeat checks', async () => {
     const project = await seedProject();

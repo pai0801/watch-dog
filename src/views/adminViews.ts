@@ -199,7 +199,11 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
         .map((p) => {
           const statusOrder: Record<string, number> = { dead: 3, error: 2, ok: 1 };
           const sortedChecks = [...p.checks].sort((a, b) => (statusOrder[b.status] ?? 0) - (statusOrder[a.status] ?? 0));
-          return html`<div class="checks-card-wrapper" x-data="{ expanded: false }" x-show="filterProject === 'all' || filterProject === '${p.id}'">
+          // Never interpolate ids into JS-valued attributes (x-show etc.):
+          // hono/html entity-escapes, but the browser decodes entities back
+          // before Alpine evaluates the attribute as an expression. Ids ride
+          // in a data attribute instead and the expression reads $el.
+          return html`<div class="checks-card-wrapper" x-data="{ expanded: false }" data-project="${p.id}" x-show="filterProject === 'all' || filterProject === $el.dataset.project">
       <div
         @click="expanded = !expanded"
         style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: #2a2a2a; cursor: pointer; border-left: 4px solid ${p.projectStatus === 'dead' ? '#e74c3c' : p.projectStatus === 'error' ? '#f39c12' : '#2ecc71'};"

@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { html } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
+import { escapeLikePattern, isValidProjectId } from '../lib/validate';
 import { getAllSettings, updateSlackSettings, updateSetting } from '../services/settings';
 import { setMaintenance } from '../services/maintenance';
 import { Layout } from '../views/layout';
@@ -183,8 +184,15 @@ admin.delete('/admin/projects/:projectId', async (c) => {
     // Delete the project
     const projectResult = await db.prepare('DELETE FROM projects WHERE id = ?').bind(projectId).run();
 
-    // Also delete logs for this project's checks
-    await db.prepare("DELETE FROM logs WHERE check_id LIKE ?").bind(`${projectId}:%`).run();
+    // Also delete logs for this project's checks. Legacy project ids may
+    // contain LIKE wildcards, so escape the id portion — but keep the
+    // trailing `%` as the intentional wildcard. Anchoring on `project:`
+    // avoids matching sibling projects (e.g. "svc" vs "svc-2").
+    const logPattern = `${escapeLikePattern(projectId)}:%`;
+    await db
+      .prepare("DELETE FROM logs WHERE check_id LIKE ? ESCAPE '\\'")
+      .bind(logPattern)
+      .run();
 
     // Verify that the project was actually deleted
     if (!projectResult.success || projectResult.meta.changes === 0) {
@@ -441,6 +449,17 @@ admin.post('/admin/projects/new', async (c) => {
       return c.html(html`
         <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
           Missing required fields
+        </div>
+      ` as any);
+    }
+
+    // Project ids are interpolated into URLs, HTML attributes and check ids —
+    // constrain the charset server-side (the form's pattern attribute is
+    // client-side only and trivially bypassed).
+    if (!isValidProjectId(project_id)) {
+      return c.html(html`
+        <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
+          Invalid Project ID: use 1-63 chars of lowercase letters, numbers or hyphens (must start with a letter or number)
         </div>
       ` as any);
     }

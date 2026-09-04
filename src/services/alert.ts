@@ -3,7 +3,7 @@
 
 import { D1Database } from '@cloudflare/workers-types';
 import { Env } from '../types';
-import { getAllSettings, getEnvWithFallback, type AllSettings } from './settings';
+import { getEnvWithFallback } from './settings';
 
 /**
  * Alert levels for Watch-Dog notifications
@@ -207,6 +207,9 @@ export async function sendSlackAlert(db: D1Database, env: Env, data: SlackAlertD
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+      // Bound the request: cron time is limited and a hung Slack call must
+      // not stall the whole run (or hold a request open indefinitely).
+      signal: AbortSignal.timeout(10_000),
     });
 
     const result = await response.json() as { ok: boolean; error?: string };
@@ -247,81 +250,14 @@ export function isInSilencePeriod(
 }
 
 /**
- * Get the silence period from database settings
+ * Get the global silence period from database settings with env fallback
+ * (SLACK_SILENCE_PERIOD_SECONDS when no DB row exists).
  *
  * @param db - D1 database for fetching settings
+ * @param env - Worker environment for fallback values
  * @returns Silence period in seconds (default: 3600 = 1 hour)
  */
-export async function getSilencePeriod(db: D1Database): Promise<number> {
-  const settings = await getAllSettings(db);
+export async function getSilencePeriod(db: D1Database, env: Env): Promise<number> {
+  const settings = await getEnvWithFallback(db, env);
   return settings.silence_period_seconds;
-}
-
-/**
- * Convenience function: Send a critical alert (service is DEAD)
- */
-export async function alertCritical(
-  db: D1Database,
-  env: Env,
-  checkId: string,
-  projectName: string,
-  checkName: string,
-  message: string,
-  metadata?: Record<string, string | number>
-): Promise<void> {
-  return sendSlackAlert(db, env, {
-    checkId,
-    projectName,
-    checkName,
-    level: 'critical',
-    title: 'Service DEAD',
-    message,
-    metadata,
-  });
-}
-
-/**
- * Convenience function: Send a recovery alert (service recovered)
- */
-export async function alertRecovery(
-  db: D1Database,
-  env: Env,
-  checkId: string,
-  projectName: string,
-  checkName: string,
-  message: string,
-  metadata?: Record<string, string | number>
-): Promise<void> {
-  return sendSlackAlert(db, env, {
-    checkId,
-    projectName,
-    checkName,
-    level: 'recovery',
-    title: 'Service Recovered',
-    message,
-    metadata,
-  });
-}
-
-/**
- * Convenience function: Send a warning alert (service reported error)
- */
-export async function alertWarning(
-  db: D1Database,
-  env: Env,
-  checkId: string,
-  projectName: string,
-  checkName: string,
-  message: string,
-  metadata?: Record<string, string | number>
-): Promise<void> {
-  return sendSlackAlert(db, env, {
-    checkId,
-    projectName,
-    checkName,
-    level: 'warning',
-    title: 'Service Warning',
-    message,
-    metadata,
-  });
 }

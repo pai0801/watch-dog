@@ -116,6 +116,15 @@ describe('admin project/check management', () => {
     await seedCheck('svc', { id: 'svc:health', name: 'health' });
   });
 
+  it('DELETE /admin/projects/:id requires the XHR marker (CSRF guard covers destructive verbs)', async () => {
+    const res = await SELF.fetch('http://localhost/admin/projects/svc', {
+      method: 'DELETE',
+      headers: { Authorization: basic(ADMIN_PASSWORD) }, // no X-Requested-With
+    });
+    expect(res.status).toBe(403);
+    expect(await getProject('svc')).not.toBeNull(); // nothing was deleted
+  });
+
   it('DELETE /admin/projects/:id removes the project, checks and logs', async () => {
     await DB.prepare("INSERT INTO logs (check_id, status, created_at) VALUES ('svc:health', 'ok', 0)").run();
 
@@ -170,6 +179,25 @@ describe('admin project/check management', () => {
     expect(project?.display_name).toBe('New Proj');
     const self = await DB.prepare('SELECT * FROM checks WHERE id = ?').bind('new-proj:self').first();
     expect(self).not.toBeNull();
+  });
+
+  it('POST /admin/projects/new rejects a project_id outside the safe charset (stored-XSS hardening)', async () => {
+    const evilId = "a' || alert(1) || '";
+    const res = await SELF.fetch('http://localhost/admin/projects/new', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        project_id: evilId,
+        display_name: 'Evil',
+        token: 'abcdef1234567890abcdef',
+      }).toString(),
+    });
+    expect(res.status).toBe(200); // htmx fragment convention: errors render as HTML
+    const text = await res.text();
+    expect(text).toContain('Invalid Project ID');
+    expect(text).not.toContain(evilId); // the payload is never echoed back
+
+    expect(await getProject(evilId)).toBeNull();
   });
 });
 

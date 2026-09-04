@@ -83,6 +83,60 @@ describe('PUT /api/config', () => {
     const res = await put('/api/config', configBody, { 'X-Project-Token': TOKEN });
     expect(res.status).toBe(200);
   });
+
+  it('rejects a project_id outside the safe charset (stored-XSS hardening)', async () => {
+    const res = await put(
+      '/api/config',
+      {
+        project_id: "a' || alert(1) || '",
+        display_name: 'Evil',
+        checks: [{ name: 'health', type: 'heartbeat' }],
+      },
+      { Authorization: `Bearer ${TOKEN}` }
+    );
+    expect(res.status).toBe(400);
+
+    expect(await getProject("a' || alert(1) || '")).toBeNull();
+  });
+
+  it('skips checks whose names fall outside the safe charset', async () => {
+    const res = await put(
+      '/api/config',
+      {
+        project_id: 'charset-test',
+        display_name: 'Charset Test',
+        checks: [
+          { name: 'x"><script>alert(1)</script>', type: 'heartbeat' },
+          { name: 'also bad', type: 'heartbeat' }, // space is not allowed
+          { name: 'legit_name-1', type: 'heartbeat' },
+        ],
+      },
+      { Authorization: `Bearer ${TOKEN}` }
+    );
+    expect(res.status).toBe(200);
+
+    expect(await getCheck('charset-test:legit_name-1')).not.toBeNull();
+    expect(await getCheck('charset-test:x"><script>alert(1)</script>')).toBeNull();
+  });
+
+  it('clamps nonsensical numeric config to sane bounds', async () => {
+    const res = await put(
+      '/api/config',
+      {
+        project_id: 'clamp-test',
+        display_name: 'Clamp Test',
+        checks: [{ name: 'health', type: 'heartbeat', interval: -5, grace: -100, threshold: 0, cooldown: 'soon' }],
+      },
+      { Authorization: `Bearer ${TOKEN}` }
+    );
+    expect(res.status).toBe(200);
+
+    const check = await getCheck('clamp-test:health');
+    expect(check?.interval).toBe(10); // min interval
+    expect(check?.grace).toBe(0); // min grace
+    expect(check?.threshold).toBe(1); // min threshold
+    expect(check?.cooldown).toBe(900); // non-numeric → default
+  });
 });
 
 describe('POST /api/pulse', () => {
@@ -150,6 +204,21 @@ describe('POST /api/pulse', () => {
       { Authorization: `Bearer ${TOKEN}` }
     );
     expect(res.status).toBe(200);
+  });
+
+  it('coerces an unknown status to ok (no arbitrary state injection)', async () => {
+    const res = await post(
+      '/api/pulse',
+      { check_name: 'health', status: 'weird<script>' },
+      { Authorization: `Bearer ${TOKEN}` }
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json<{ status: string }>();
+    expect(body.status).toBe('ok');
+
+    const check = await getCheck('svc:health');
+    expect(check?.status).toBe('ok');
   });
 });
 
