@@ -23,7 +23,7 @@ export const REQUIRED_BINDING_KEYS = ['ADMIN_TOKEN'] as const;
  * Optional runtime secrets — read through accessors below.
  * (Empty since the SLACK_API_TOKEN legacy fallback was removed before the
  * first production deploy — D1 settings table is the single source of
- * truth; see TODO-REVIEW #7 and services/settings.ts getEffectiveSettings.)
+ * truth; see TODO-REVIEW #7 and services/settings.ts（fallback 移除後僅讀 DB）.)
  */
 export const OPTIONAL_BINDING_KEYS = [] as const;
 

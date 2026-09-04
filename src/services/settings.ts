@@ -66,7 +66,9 @@ const DB_KEY_TO_INTERFACE_KEY: Record<string, keyof AllSettings> = {
 };
 
 /**
- * Get all settings from the database
+ * Get all settings from the database — the single source of truth
+ * (configured via /admin). The legacy SLACK_* env fallback was removed
+ * before the first production deploy (TODO-REVIEW #7).
  *
  * @param db - D1 database instance
  * @returns All settings with defaults for missing values
@@ -153,19 +155,4 @@ export async function updateSlackSettings(db: D1Database, settings: SlackSetting
   } catch {
     return false;
   }
-}
-
-/**
- * Get effective alert settings.
- *
- * The D1 `settings` table is the single source of truth (configured via
- * /admin). The legacy env-var fallback (SLACK_*) was removed before the
- * first production deploy, so no deployment ever depended on it
- * (TODO-REVIEW #7, see FIX-LOG 2026-09-04).
- *
- * @param db - D1 database instance
- * @returns All settings with defaults for missing values
- */
-export async function getEffectiveSettings(db: D1Database): Promise<AllSettings> {
-  return getAllSettings(db);
 }

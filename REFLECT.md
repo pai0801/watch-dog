@@ -5,6 +5,37 @@
 
 ---
 
+## Cycle 2026-09-04（末輪）— follow-through 收尾：TODO-REVIEW 16→0 全清 + 文件與物理現實對齊
+
+### R1 [MUST] Directives
+
+- #7 前提重審：原「操作者決策債（等兩專案遷移）」不成立——系統從未部署，遷移條件不存在 → 首次部署前移除 SLACK_* env fallback（042c8d2），DB settings 單一真相源；與 #8 同為「出生前收縮介面」模式。
+- 誠實降級與幻覺清剿：cycle-1 R4「app pool 60/60」在本機物理不可能（glibc 2.31 連 2023-12 後 workerd 都擋）→ 劃記更正；「CI 會補全量」被 runner 離線推翻 → 三處更正；dev-tunnel.sh 工作流在本機從未可跑 → AGENTS/CLAUDE 環境限制表。
+- 收尾自糾：getEffectiveSettings 單行 passthrough 違反深模組原則 → 併回 getAllSettings（單一匯出名）；cycle-3 R3「16→1」過時宣稱補更正註記。
+
+### R2 [NEVER] Directives
+
+- 未違反：無 --no-verify、無 force-push、無明文 secret 經手、docs/plans/* 歷史文件未改。
+- 當場修正：自己前輪的「getEffectiveSettings 新名稱」設計皺摺（rename 後仍留雙匯出名）——合併而非辯護。
+
+### R3 Artifact 完整
+
+- 042c8d2（#7 移除：9 檔+22 測試呼叫點）、本 commit（passthrough 合併+REFLECT 更正）；TODO-REVIEW 16 項全數清償（劃記+日期+處置保留）；FIX-LOG #7 entry 四欄位齊。
+- 環境現實記錄：SECRETS.md（node22 免 sudo recipe+runner 離線）、AGENTS/CLAUDE（環境限制表）。
+
+### R4 驗證證據
+
+- #7 移除：tsc ✓ eslint ✓ guards 21/21 ✓（§F/§G/§H 三方同步 optional=[] ≡ required=[ADMIN_TOKEN]）§L/§M ✓ baseline ✓；app pool 行為補驗留 runner 恢復後 CI 首跑（與 #9 同批，FIX-LOG 記錄）。passthrough 合併：tsc ✓ eslint ✓。
+- 全程 16 commits 推送 origin/main（d8a6c9c..HEAD），working tree clean。
+
+### R5 經驗記錄
+
+- **「操作者決策債」要重審前提**：#7 的「等遷移」建立在「有部署存在」的假設上——首次部署前的 BREAKING window 是零成本收縮介面的唯一時機，錯過就要付遷移稅。
+- **rename ≠ 設計改善**：把 getEnvWithFallback 改名 getEffectiveSettings 後仍留 passthrough 層，是換湯不換藥——深模組原則問的是「匯出面是否最小」，單行代理函數直接併回。
+- **文檔宣稱有半衰期**：cycle entry 寫下的狀態（16→1）會被後續輪次推翻——重要狀態變化要在舊 entry 補更正註記而非只寫新 entry，否則讀者拿舊數字。
+
+---
+
 ## Cycle 2026-09-04（深夜）— follow-through 第二輪：#8 移除 + push 解鎖 + CI runner 離線發現
 
 ### R1 [MUST] Directives
@@ -21,7 +52,7 @@
 ### R3 Artifact 完整
 
 - f4b47cd（#8 移除+測試鎖 401+文件同步）、0dbcd42（FIX-LOG 事後補記）、438fe0b（#8 清償記錄+SECRETS node≥22 前置）、91d9e10（pre-push 探測+三處主張更正）。
-- TODO-REVIEW 16→1（僅 #7 操作者決策債）；SECRETS.md 新增「CI runner 離線」操作者待辦段落。
+- TODO-REVIEW 16→1（僅 #7 操作者決策債；**後續更正（末輪）**：#7 前提重審不成立——系統從未部署、無遷移可等 → 042c8d2 移除，**16→0 全清**）；SECRETS.md 新增「CI runner 離線」操作者待辦段落。
 
 ### R4 驗證證據
 

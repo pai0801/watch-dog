@@ -2,7 +2,7 @@
 // Slack alert service for Watch-Dog Sentinel
 
 import { D1Database } from '@cloudflare/workers-types';
-import { getEffectiveSettings } from './settings';
+import { getAllSettings } from './settings';
 
 /**
  * Alert levels for Watch-Dog notifications
@@ -93,7 +93,7 @@ export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Prom
   } = data;
 
   // Settings come from the D1 settings table (single source of truth)
-  const settings = await getEffectiveSettings(db);
+  const settings = await getAllSettings(db);
 
   // Get Slack token from settings
   const token = settings.api_token;
@@ -263,6 +263,6 @@ export function isInSilencePeriod(
  * @returns Silence period in seconds (default: 3600 = 1 hour)
  */
 export async function getSilencePeriod(db: D1Database): Promise<number> {
-  const settings = await getEffectiveSettings(db);
+  const settings = await getAllSettings(db);
   return settings.silence_period_seconds;
 }
