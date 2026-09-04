@@ -11,6 +11,7 @@
 **預期結果**：bootstrap [0/5] node 檢查改 ≥22（WARN 路徑含免 sudo recipe 指引）；`.portability.toml [bootstrap].requires` 同步 `node>=22`；restore.sh `</dev/null` stdin 隔離 + 空密碼 fail-fast（明確 ERROR）；殘留引用清理對齊 `getAllSettings` 最終設計。
 **範圍**：`scripts/bootstrap.sh`、`secrets-archive/{restore.sh,SECRETS.md}`、`.portability.toml`、`docs/admin-settings-ui-summary.md`、`src/lib/bindings.ts`（註解）。無 schema 變動、無 secret 值變動。
 **驗證**：fresh-clone 實測矩陣（glibc 2.31 + node 22 tarball）：[1/5] npm install ✓、[2/5] cf-typegen 生成 types ✓（但 exit 1：runtime types 階段 spawn workerd 死於 glibc——types 檔已足讓 typecheck ✓）、[3/5] restore 無密碼場景修復後 41ms fail-fast ✓（修前永 hang）、[4/5] d1 --local 確認死於 workerd glibc（預期內，記錄）、guards 21/21 ✓ eslint ✓ typecheck ✓ 於 fresh clone 全綠。node 20 主機 [0/5] WARN 如實觸發 ✓；§L guard ✓（manifest requires 變更後）。
+**補記（portability-smoke 同款降級）**：smoke 的 `npm test` + `deploy --dry-run` 與 pre-push 同病——本機 workerd glibc 擋 app pool、node 20 擋 wrangler（實測 rc=1 卡 GLIBC）。套同款環境探測：workerd 不可執行 → guards-only + ⚠ 大聲標示（「本輪全綠 ≠ 全量已驗」）；node < 22 → 明確跳過 dry-run。降級路徑實測 rc=0 且三處 ⚠ 如實輸出；full 模式（glibc ≥ 2.32 + node ≥ 22 環境）行為不變。
 **環境矩陣結論**（glibc 2.31 主機）：wrangler CLI（types/deploy dry-run）＝node 22 可解；workerd 依賴（d1 --local/dev/app pool）＝node 解不了，需 glibc ≥ 2.32 環境（容器/新主機）——與 SECRETS.md/AGENTS.md 環境限制表一致。
 
 ### [2026-09-04] TODO-REVIEW #7 清償：移除 SLACK_* env fallback——首次部署前落地，DB settings 單一真相源（TODO-REVIEW 16→0）
