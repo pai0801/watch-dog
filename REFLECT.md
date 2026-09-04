@@ -37,6 +37,9 @@
 - **文檔宣稱有半衰期**：cycle entry 寫下的狀態（16→1）會被後續輪次推翻——重要狀態變化要在舊 entry 補更正註記而非只寫新 entry，否則讀者拿舊數字。
 - **同型 bug 會成群**：seal.sh 修過的 `read -rs` hang 在 restore.sh 原封不動再現（bootstrap [3/5] 永 hang）；pre-push 修過的 workerd 探測在 smoke 缺席。修一個環境相依缺陷後，[MUST] 立即盤點所有同型呼叫點——缺陷傳播是複製貼上的必然。
 - **requires 宣稱要用最新工具鏈實測**：bootstrap 寫 node>=20 是 wrangler 4.61 時代的真相；升級 4.129 後沒人重驗——升級依賴（輪 1 的 secrets.required 需要 4.129）時，requires 清單要一起重測。
+- **`set -o pipefail` + `X | head` 是定時炸彈**：`ldd --version | head -1` 在 command substitution 裡因 ldd 收 SIGPIPE 回 141 直接炸掉整個腳本（check-env.sh 實測）——管線消費者會提前關管線，生產者 SIGPIPE 死亡的 exit code 在 pipefail 下會傳播。解法：`|| true` 隔離或先落變數。寫任何 pipefail 腳本時盤點全部 `| head`/`| grep -m1` 呼叫點。
+- **版本解析要 fail-closed**：非數字輸出進 `[ -lt ]` 回 exit 2 被當 false = fail-open 放行（mock 揭露）——解析外部命令輸出時先 `grep -oE '^[0-9]+$'` 白名單過濾，空值明確 default 到「不通過」側。
+- **guard 會攔自己人**：D19 在 pre-push 攔下本 session 自己寫的 FIX-LOG 格式錯誤（問題/修復 → 目標/預期結果/範圍）——這是 gate 體系自證有效的最強證據；agent 寫文檔也要先讀格式真源再動筆。
 
 ---
 
