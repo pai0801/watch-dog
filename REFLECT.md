@@ -28,7 +28,7 @@
 
 - #7 移除：tsc ✓ eslint ✓ guards 21/21 ✓（§F/§G/§H 三方同步 optional=[] ≡ required=[ADMIN_TOKEN]）§L/§M ✓ baseline ✓；app pool 行為補驗留 runner 恢復後 CI 首跑（與 #9 同批，FIX-LOG 記錄）。passthrough 合併：tsc ✓ eslint ✓。
 - 環境誠實化全網對齊：pre-push（91d9e10）/ smoke（a4894ee）workerd 探測降級實測 rc=0 + ⚠ 如實輸出；bootstrap（0ff3d7d）node≥22 WARN 如實觸發；restore（3096887）無密碼 41ms fail-fast（修前永 hang）。
-- 全程 20 commits 推送 origin/main（d8a6c9c..a4894ee），working tree clean。
+- 全程 19 commits 推送 origin/main（d8a6c9c..4f01580，採用協議 session 之後的全部），working tree clean。
 
 ### R5 經驗記錄
 
