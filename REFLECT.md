@@ -20,19 +20,23 @@
 
 ### R3 Artifact 完整
 
-- 042c8d2（#7 移除：9 檔+22 測試呼叫點）、本 commit（passthrough 合併+REFLECT 更正）；TODO-REVIEW 16 項全數清償（劃記+日期+處置保留）；FIX-LOG #7 entry 四欄位齊。
-- 環境現實記錄：SECRETS.md（node22 免 sudo recipe+runner 離線）、AGENTS/CLAUDE（環境限制表）。
+- 042c8d2（#7 移除：9 檔+22 測試呼叫點）、ad44edf（passthrough 合併+本 cycle 更正）；3096887（restore.sh 同型 hang 修復+#7 殘留引用清理）、0ff3d7d（bootstrap node requires 20→22+環境矩陣）、a4894ee（portability-smoke 同款降級）；TODO-REVIEW 16 項全數清償（劃記+日期+處置保留）；FIX-LOG 兩個新 entry 四欄位齊。
+- 環境現實記錄：SECRETS.md（node22 免 sudo recipe+runner 離線）、AGENTS/CLAUDE（環境限制表）、bootstrap/smoke（workerd/node 探測註解）。
+- Fresh-clone 重建承諾首次端到端實測（[1]✓ [2]types✓ [3]fail-fast✓ [4]glibc 預期敗；guards/eslint/tsc 於 fresh clone 全綠）。
 
 ### R4 驗證證據
 
 - #7 移除：tsc ✓ eslint ✓ guards 21/21 ✓（§F/§G/§H 三方同步 optional=[] ≡ required=[ADMIN_TOKEN]）§L/§M ✓ baseline ✓；app pool 行為補驗留 runner 恢復後 CI 首跑（與 #9 同批，FIX-LOG 記錄）。passthrough 合併：tsc ✓ eslint ✓。
-- 全程 16 commits 推送 origin/main（d8a6c9c..HEAD），working tree clean。
+- 環境誠實化全網對齊：pre-push（91d9e10）/ smoke（a4894ee）workerd 探測降級實測 rc=0 + ⚠ 如實輸出；bootstrap（0ff3d7d）node≥22 WARN 如實觸發；restore（3096887）無密碼 41ms fail-fast（修前永 hang）。
+- 全程 20 commits 推送 origin/main（d8a6c9c..a4894ee），working tree clean。
 
 ### R5 經驗記錄
 
 - **「操作者決策債」要重審前提**：#7 的「等遷移」建立在「有部署存在」的假設上——首次部署前的 BREAKING window 是零成本收縮介面的唯一時機，錯過就要付遷移稅。
 - **rename ≠ 設計改善**：把 getEnvWithFallback 改名 getEffectiveSettings 後仍留 passthrough 層，是換湯不換藥——深模組原則問的是「匯出面是否最小」，單行代理函數直接併回。
 - **文檔宣稱有半衰期**：cycle entry 寫下的狀態（16→1）會被後續輪次推翻——重要狀態變化要在舊 entry 補更正註記而非只寫新 entry，否則讀者拿舊數字。
+- **同型 bug 會成群**：seal.sh 修過的 `read -rs` hang 在 restore.sh 原封不動再現（bootstrap [3/5] 永 hang）；pre-push 修過的 workerd 探測在 smoke 缺席。修一個環境相依缺陷後，[MUST] 立即盤點所有同型呼叫點——缺陷傳播是複製貼上的必然。
+- **requires 宣稱要用最新工具鏈實測**：bootstrap 寫 node>=20 是 wrangler 4.61 時代的真相；升級 4.129 後沒人重驗——升級依賴（輪 1 的 secrets.required 需要 4.129）時，requires 清單要一起重測。
 
 ---
 
