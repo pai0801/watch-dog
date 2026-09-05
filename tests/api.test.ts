@@ -54,7 +54,18 @@ describe('PUT /api/config', () => {
     expect(res.status).toBe(400);
   });
 
-  it('registers a project and its checks', async () => {
+  it('returns 404 for an unknown project (closed registration, 2026-09-05)', async () => {
+    const res = await put('/api/config', configBody, { Authorization: `Bearer ${TOKEN}` });
+    expect(res.status).toBe(404);
+
+    // nothing was created — no project, no checks
+    expect(await getProject('new-service')).toBeNull();
+    expect(await getCheck('new-service:health')).toBeNull();
+  });
+
+  it('updates config for an operator-created project', async () => {
+    await seedProject({ id: 'new-service', token: TOKEN, display_name: 'Old Name' });
+
     const res = await put('/api/config', configBody, { Authorization: `Bearer ${TOKEN}` });
     expect(res.status).toBe(200);
 
@@ -73,7 +84,7 @@ describe('PUT /api/config', () => {
   });
 
   it('rejects a mismatched token for an existing project (403)', async () => {
-    await put('/api/config', configBody, { Authorization: `Bearer ${TOKEN}` });
+    await seedProject({ id: 'new-service', token: TOKEN, display_name: 'New Service' });
 
     const res = await put('/api/config', configBody, { Authorization: 'Bearer wrong-token-aaaaaaaa' });
     expect(res.status).toBe(403);
@@ -100,6 +111,7 @@ describe('PUT /api/config', () => {
   });
 
   it('skips checks whose names fall outside the safe charset', async () => {
+    await seedProject({ id: 'charset-test', token: TOKEN });
     const res = await put(
       '/api/config',
       {
@@ -120,6 +132,7 @@ describe('PUT /api/config', () => {
   });
 
   it('clamps nonsensical numeric config to sane bounds', async () => {
+    await seedProject({ id: 'clamp-test', token: TOKEN });
     const res = await put(
       '/api/config',
       {

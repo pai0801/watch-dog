@@ -181,6 +181,18 @@ describe('admin project/check management', () => {
     expect(self).not.toBeNull();
   });
 
+  it('POST /admin/projects/new rejects a weak token (<16 chars, server-side #17)', async () => {
+    const res = await SELF.fetch('http://localhost/admin/projects/new', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'project_id=weak-proj&display_name=Weak&token=short',
+    });
+    expect(res.status).toBe(200); // htmx fragment convention: errors render as HTML
+    const text = await res.text();
+    expect(text).toContain('at least 16 characters');
+    expect(await getProject('weak-proj')).toBeNull();
+  });
+
   it('POST /admin/projects/new rejects a project_id outside the safe charset (stored-XSS hardening)', async () => {
     const evilId = "a' || alert(1) || '";
     const res = await SELF.fetch('http://localhost/admin/projects/new', {

@@ -14,8 +14,10 @@ Watch-Dog 是 **dead-man's switch**：你的服務固定發 pulse（心跳），
 
 ## 30 秒接入（最小閉環）
 
+> **前提**：操作者已在 `/admin` 建立 project 並把 token 交給你（註冊不開放自助——見下方 Token 說明）。
+
 ```bash
-# 1) 註冊 check（token 向操作者索取；首次註冊即建立 project）
+# 1) 定義你的 checks（project 已由操作者建立；token 是你的專案身分）
 curl -X PUT "https://watch-dog.helperp.workers.dev/api/config" \
   -H "Authorization: Bearer YOUR_PROJECT_TOKEN" \
   -H "Content-Type: application/json" \
@@ -35,7 +37,7 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
 | 事項 | 說明 |
 |---|---|
 | 認證方式 | `Authorization: Bearer {project_token}`（**僅此一途**，舊 `X-Project-Token` header 已移除） |
-| Token 取得 | 向操作者索取；或首次 `PUT /api/config` 自帶 token 註冊（新 project 開放註冊；**改名既有 project 的設定需要原 token**） |
+| Token 取得 | 向操作者索取（操作者在 `/admin` 建立 project 時設定 token，至少 16 字元）。**註冊不開放自助**——`PUT /api/config` 對未知 project 回 404，防止陌生人建立 check 打警報進 Slack |
 | Token 保管 | 至少 16 字元隨機值；放環境變數 / 該專案的 secrets 管理，[NEVER] commit 進 repo |
 | 401 vs 403 | 401 = 沒帶 token；403 = token 不對（或與 project 不符） |
 
@@ -154,7 +156,7 @@ class WatchDogClient:
 ## Watch-Dog 心跳接入（已完成/待接入）
 - 服務: https://watch-dog.helperp.workers.dev
 - Token: 環境變數 WATCHDOG_TOKEN（向操作者索取；secrets 管理勿 commit）
-- 註冊: 啟動時 PUT /api/config（Bearer；body 含 project_id/display_name/checks）
+- 註冊: project 由操作者於 /admin 建立（closed registration）；啟動時 PUT /api/config 定義 checks（Bearer；body 含 project_id/display_name/checks；未知 project 回 404）
 - 心跳: 每輪工作完成後 POST /api/pulse {"check_name":"...","status":"ok"}
 - 判死: interval+grace 秒內無 pulse → Slack critical；恢復 → success 通知
 - 監控故障 [MUST NOT] 影響主流程：pulse 失敗靜默（timeout 5s、catch-all）
@@ -182,7 +184,7 @@ curl -s https://watch-dog.helperp.workers.dev/api/status/my-service | jq
 |---|---|
 | pulse 回 401 | 沒帶 `Authorization: Bearer` header |
 | pulse 回 403 | token 錯 / 與 project 不符（`project_id` 有指定時兩者必須一致） |
-| pulse 回 404 | check 未註冊——先 `PUT /api/config`（看 `checks_registered` 是否如預期） |
+| pulse/config 回 404 | project 或 check 不存在——project 要操作者在 `/admin` 建立；check 先 `PUT /api/config`（看 `checks_registered` 是否如預期） |
 | config 回 200 但 check 沒出現 | 該條目無效被靜默跳過（type 不合法 / name 空值）——比對 `checks_registered` |
 | 沒收到 Slack 警報 | check 是否被 admin 暫停（monitor=0）？project 是否在維護模式？是否仍在 cooldown/靜默期？ |
 | 一直誤報 DEAD | `interval` 設得比實際發 pulse 週期短——interval 要 ≈ 你的發送週期、grace 吸收抖動 |

@@ -478,6 +478,17 @@ admin.post('/admin/projects/new', async (c) => {
       `);
     }
 
+    // Server-side token strength (TODO-REVIEW #17): the form's minlength is
+    // client-side only; the project token is the check's identity (pulse
+    // resolves projects BY token), so it must not be guessable.
+    if ((token as string).length < 16) {
+      return c.html(html`
+        <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem;">
+          Token must be at least 16 characters (e.g. openssl rand -hex 24)
+        </div>
+      `);
+    }
+
     // Create the project
     await db.prepare(`
       INSERT INTO projects (id, token, display_name, maintenance_until, created_at)

@@ -24,10 +24,13 @@ Watch-Dog Sentinel 是**被動監控系統**（Dead Man's Switch）。服務主�
 
 ## 操作流程
 
-### 1) 建立 Project（二擇一）
+### 1) 建立 Project（唯一途徑 = Admin UI）
 
-- **Admin UI**：`/admin` → Projects 標籤 → New Project（Project ID 小寫英文/數字/連字符；Token 至少 16 字元）——會自動附帶一個 `self` 心跳 check。
-- **客戶端自行註冊**：客戶端首次 `PUT /api/config` 自帶 token 即建立（新建開放；改動既有 project 需原 token）。單操作者艦隊可接受。
+- **Admin UI**：`/admin` → Projects 標籤 → New Project（Project ID 小寫英文/數字/連字符；Token **至少 16 字元**——server 端強制，`openssl rand -hex 24` 建議）——會自動附帶一個 `self` 心跳 check。
+
+> **註冊已關閉（2026-09-05）**：`PUT /api/config` 不再能建立新 project（未知 project 回 404）。
+> 客戶端拿到的是「操作者已建立專案的 token」——用它更新自己的 checks、發 pulse。
+> 原因：開放註冊 = 任何知道 URL 的人都能建 check → 不發 pulse → 判死警報打進你的 Slack（警報通道虐待面）。
 
 Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 repo 的 env-tools / secrets-archive 模式），[NEVER] 明文 commit。
 

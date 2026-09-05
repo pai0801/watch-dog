@@ -9,7 +9,7 @@
 ## 舊債（存量，排程處理）
 
 > 2026-09-04 末輪狀態：16 項舊債全數清償、零未償（#1–#6 docs/CSS；#9–#16 見 88b0a3c / 3ad4bf7；
-> #7 見 042c8d2＋末輪收斂；#8 見 f4b47cd）。#17/#18 為 2026-09-05 首次部署後線上實測發現的新債。
+> #7 見 042c8d2＋末輪收斂；#8 見 f4b47cd）。#17/#18 為 2026-09-05 首次部署後線上實測發現的新債，同日清償。
 > 表列 row 保留為歷史記錄，處置細節見各 commit 與 FIX-LOG 條目。
 
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
@@ -30,8 +30,8 @@
 | 14 | D5/§E import 掃描（`framework.test.ts` / `portability.test.ts`） | ~~`from 'cloudflare:workers'` 只配單引號~~ | pattern 改 `['"]` 兩引號 | **已清償 2026-09-04**（88b0a3c） |
 | 15 | `secrets-archive/pre-commit-check.sh` §1b 值級掃描 | ~~行本位 grep 漏多行 JSONC~~ | 改 `grep -zE` 全文比對；多行 JSONC 注入證明 FAIL→還原綠（D38） | **已清償 2026-09-04**（88b0a3c） |
 | 16 | `AGENTS.md` = `CLAUDE.md` 內文逐字複製（80 行） | ~~無機械驗證~~ | framework.test.ts 加 guard：兩檔 body（首個 `## ` 起）不一致即紅 | **已清償 2026-09-04**（88b0a3c） |
-| 17 | `src/routes/api.ts` `PUT /api/config` | API 層不驗 project token 強度——「至少 16 字元」只在 admin UI client-side（`minlength`）；線上實測 1 字元 token 可註冊。pulse 未帶 `project_id` 時以 token 反查專案 → 弱 token = 可猜的身分 | `PUT /api/config` 對**新建** project 加 server-side 檢查（`token.length >= 16`，不足回 400）；附 api.test.ts 測試（短 token 400、16+ 通過） | 待處理（2026-09-05 記錄，線上實證） |
-| 18 | `src/routes/api.ts` 註冊面 | 開放註冊＋無 rate limit——知道 URL 者可建立垃圾 project（資料污染/儲存面）；既有專案劫持有 403 保護（已實證） | 單操作者半私有 URL 下裁定 accepted-risk；若上線後出現濫用再考慮（Cloudflare WAF rate limit rule 或 Access 前置） | accepted-risk（2026-09-05 記錄） |
+| 17 | `src/routes/api.ts` `PUT /api/config` | ~~API 層不驗 project token 強度——「至少 16 字元」只在 admin UI client-side~~ | 註冊封閉化：`PUT /api/config` 未知 project 回 404（建立只走 `/admin`）；`POST /admin/projects/new` 加 server-side `token.length >= 16`（api/admin 測試 +2） | **已清償 2026-09-05**（closed registration 輪） |
+| 18 | `src/routes/api.ts` 註冊面 | ~~開放註冊＋無 rate limit——知道 URL 者可建立垃圾 project；更嚴重：建 check 不發 pulse → 判死警報打進操作者 Slack（警報通道虐待）~~ | 註冊封閉化後未認證寫入面歸零——垃圾/虐待專案建立現需 admin 憑證；admin 面 brute-force 由既有 Basic Auth + timingSafeEqual 姿態涵蓋 | **已清償 2026-09-05**（隨 #17 一併消除） |
 
 ## 複本盤點確認非債項（避免重複調查）
 

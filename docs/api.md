@@ -72,7 +72,10 @@ Content-Type: application/json
 
 ### PUT /api/config
 
-Register or update project and check configurations.
+Update project and check configurations. **Registration is closed** (2026-09-05):
+the project must already exist (created by the operator via `/admin`) — an
+unknown `project_id` returns 404. An existing project additionally requires its
+own token (403 on mismatch).
 
 **Request:**
 ```http
@@ -128,6 +131,8 @@ Content-Type: application/json
   "checks_registered": 1
 }
 ```
+
+**Error Responses:** 400 (invalid body/charset) · 401 (no token) · 403 (wrong token) · **404 (unknown project — registration is closed, ask the operator)**
 
 ---
 

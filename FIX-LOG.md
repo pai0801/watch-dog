@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] 註冊封閉化（closed registration）＋ admin token 強度 server-side——TODO-REVIEW #17/#18 清償
+
+**目標**：消除開放註冊的攻擊面：任何人可經 `PUT /api/config` 建 check → 不發 pulse → 判死警報打進操作者 Slack（**警報通道虐待**——alert fatigue 會淹掉真警報）；且 API 建立的 project token 無強度檢查，而 pulse 未帶 `project_id` 時以 token 反查專案 → 弱 token = 可猜身分。
+**原因**：操作者提問「不是應該先確認身份才能讓專案註冊？」——重新審視後確認：單操作者系統的正確模型是**註冊 = 操作者動作**、客戶端只憑專案 token 報到。線上實證（auth-demo/weak-token-demo）：既有專案錯 token 403 ✓（劫持防護完整），但 1 字元 token 可註冊成功（admin UI 的 minlength=16 僅 client-side）。
+**預期結果**：`PUT /api/config` 未知 project → 404（訊息導向「請操作者於 /admin 建立」）；既有 project 保持 token-gated（403）；display_name 更新由 upsert 改為 UPDATE（INSERT..ON CONFLICT 分支移除，`now` 變數一併清——noUnusedLocals）。`POST /admin/projects/new` 加 server-side `token.length >= 16`（htmx 錯誤片段，不回 echo payload）。測試 +2：api.test.ts「未知 project 404＋零副作用」（無 project/check 落地）、admin.test.ts「弱 token 拒絕」；原註冊測試改為 seed 前置（seedProject）。文件同步：client-guide（Token 取得改為操作者建立、30 秒閉環加前提、agent 塊、404 排序）、usage（唯一途徑=admin UI）、api.md（PUT config 語義＋404）。
+**範圍**：`src/routes/{api,admin}.ts`、`tests/{api,admin}.test.ts`、`docs/{client-guide,usage,api}.md`、`TODO-REVIEW.md`（#17/#18 → 已清償）。無 schema、無 secret 變動。
+**驗證**：app pool **64/64** ✓（62+2）guards 21/21 ✓；部署 version `f71ba735` 後線上實測六步全綠——①未知 project PUT config → **404**（且無資料落地）②admin 弱 token → 「at least 16 characters」拒絕 ③admin 合法建立 → 302 ④持 token PUT config → 200（checks_registered:1）⑤pulse `self` check → success ⑥admin delete → 200、projects:0。
+
 ### [2026-09-05] 首次生產部署完成——helperp@gmail.com 帳號切換（D1 額度解法）＋ #14258 流程＋線上 e2e 驗證
 
 **目標**：完成 watch-dog 首次生產部署（前次嘗試因 paipeter 帳號 D1 Free 額度滿中斷，操作者裁定改用 helperp@gmail.com 帳號建置）。

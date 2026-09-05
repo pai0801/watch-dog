@@ -17,11 +17,11 @@ const api = new Hono<{ Bindings: AppBindings }>();
 
 /**
  * PUT /api/config
- * Register or update project and check configurations
+ * Update project and check configurations for an operator-created project
+ * (registration itself is closed — see the handler body).
  */
 api.put('/api/config', async (c) => {
   const db = c.env.DB;
-  const now = Math.floor(Date.now() / 1000);
 
   const token = extractProjectToken(c);
   if (!token) {
@@ -54,26 +54,30 @@ api.put('/api/config', async (c) => {
       return c.json({ error: 'Missing or invalid checks array' }, 400);
     }
 
-    // Verify token matches existing project (creating a new project is open,
-    // but hijacking an existing project id requires its token)
+    // Closed registration (2026-09-05, TODO-REVIEW #17/#18): projects are
+    // created by the operator via /admin only. Open self-registration let
+    // anyone with the URL mint checks and then spam the alert channels (a
+    // check that never pulses fires DEAD alerts into Slack). Config on an
+    // existing project still needs only that project's token.
     const existingProject = await db
       .prepare('SELECT * FROM projects WHERE id = ?')
       .bind(project_id)
       .first<Project>();
 
-    if (existingProject && !timingSafeEqual(existingProject.token, token)) {
+    if (!existingProject) {
+      return c.json(
+        { error: 'Project not found. Registration is closed — ask the operator to create it via /admin.' },
+        404,
+      );
+    }
+    if (!timingSafeEqual(existingProject.token, token)) {
       return c.json({ error: 'Invalid token for project' }, 403);
     }
 
-    // Upsert project
+    // Project row exists (operator-created); the client may rename its display
     await db
-      .prepare(`
-        INSERT INTO projects (id, token, display_name, maintenance_until, created_at)
-        VALUES (?, ?, ?, 0, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          display_name = ?
-      `)
-      .bind(project_id, token, display_name, now, display_name)
+      .prepare('UPDATE projects SET display_name = ? WHERE id = ?')
+      .bind(display_name, project_id)
       .run();
 
     // Upsert checks
