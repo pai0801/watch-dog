@@ -30,7 +30,7 @@ Watch-Dog Sentinel 是**被動監控系統**（Dead Man's Switch）。服務主�
 scripts/enroll.sh my-service 我的服務
 ```
 
-自動：openssl 生 token → admin API 建 project（含預設 `self` check）→ 印出 client 要貼的三行 env → 記到 `docs/tokens.local.md`（gitignored 本地清單）。也可以手動走 Admin UI（`/admin` → New Project，token 至少 16 字元——server 端強制）。
+自動：openssl 生 token → admin API 建 project（含預設 `self` check）→ 印出 client 要貼的三行 env → 記到 `docs/tokens.local.md`（**同 `.env` 模型**：本地明文 gitignored＋自動 seal 加密進 `env.7z`）。也可以手動走 Admin UI（`/admin` → New Project，token 至少 16 字元——server 端強制）。
 
 > **註冊已關閉（2026-09-05）**：`PUT /api/config` 不再能建立新 project（未知 project 回 404）。
 > 客戶端拿到的是「操作者已建立專案的 token」——用它更新自己的 checks、發 pulse。

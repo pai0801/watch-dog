@@ -48,5 +48,11 @@ echo "WATCHDOG_URL=$BASE_URL"
 echo "WATCHDOG_PROJECT=$PROJECT_ID"
 echo "WATCHDOG_TOKEN=$TOKEN"
 echo "───────────────────────────────────────────────────────"
-echo "token 已記錄：$REGISTRY（本地）"
+echo "token 已記錄：$REGISTRY（本地明文＋加密進 env.7z——同 .env 模型）"
+# 清單有變動 → 自動 re-seal（無密碼來源時提示手動；pre-commit --check 會擋未 seal 的漂移）
+if bash secrets-archive/seal.sh >/dev/null 2>&1; then
+  echo "✓ env.7z 已 re-seal（記得 git add secrets-archive/env.7z）"
+else
+  echo "⚠ 無法自動 seal（無密碼來源）——commit 前手動跑 bash secrets-archive/seal.sh"
+fi
 unset ADMIN_PW TOKEN

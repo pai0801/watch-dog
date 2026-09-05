@@ -11,8 +11,9 @@ ARCHIVE="$REPO_ROOT/secrets-archive/env.7z"
 CHECKOUT="$(basename "$REPO_ROOT")"
 
 # wrangler.toml/jsonc 本體是 tracked 公開配置(值走 wrangler secret put),不入 seal;
-# 只封「機器本地值檔」:.env*/.dev.vars 與 wrangler env 變體(.example/.bak/.test 除外)。
-SECRET_PATTERNS=(".env*" ".dev.vars" "wrangler.*.toml" "wrangler.*.jsonc")
+# 只封「機器本地值檔」:.env*/.dev.vars 與 wrangler env 變體(.example/.bak/.test 除外),
+# 加 docs/tokens.local.md(scripts/enroll.sh 的本地 token 清單——同 .env 模型:本地明文+加密進 git)。
+SECRET_PATTERNS=(".env*" ".dev.vars" "wrangler.*.toml" "wrangler.*.jsonc" "docs/tokens.local.md")
 EXCLUDE_RE='(\.example|\.bak|\.test)(\..*)?$'
 
 get_pass() {

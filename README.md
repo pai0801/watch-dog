@@ -77,7 +77,7 @@ submitted empty.
 scripts/enroll.sh my-service 我的服務
 ```
 
-自動生 token、建 project（含 `self` check）、印出 client 專案要貼的三行 env（`WATCHDOG_URL` / `WATCHDOG_PROJECT` / `WATCHDOG_TOKEN`），並記到本地 `docs/tokens.local.md`（**gitignored**——private repo 也不把 token 值寫進 committed 檔：本 repo 的 pre-commit 值級掃描會擋，且 2026-02-02 曾因 docs 內文明 token 付出輪替代價）。
+自動生 token、建 project（含 `self` check）、印出 client 專案要貼的三行 env（`WATCHDOG_URL` / `WATCHDOG_PROJECT` / `WATCHDOG_TOKEN`），並記到 `docs/tokens.local.md`——**同 `.env` 模型**：本地明文（gitignored）＋自動 seal 加密進 `secrets-archive/env.7z`（committed）。token 值不進 committed 明文檔（pre-commit 值級掃描會擋，且 2026-02-02 曾因 docs 內文明 token 付出輪替代價）。
 
 ## API Endpoints
 

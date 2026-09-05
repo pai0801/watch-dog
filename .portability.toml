@@ -5,7 +5,8 @@
 [machine_local]
 # 顯式列示 = universal 預設 glob 的明示形式（§L guard 雙向 coherence）。
 # wrangler.jsonc 是 committed（僅含 D1 database_id，非 secret）→ 不在此。
-files = [".env", ".dev.vars"]
+# docs/tokens.local.md = scripts/enroll.sh 的本地 token 清單（seal.sh 同 .env 模式加密進 env.7z）。
+files = [".env", ".dev.vars", "docs/tokens.local.md"]
 
 [secrets]
 # 只列 key 名（[NEVER] 列 value，09 §1.1 + 10-SECRETS-CONTRACT §2）。
