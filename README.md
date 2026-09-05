@@ -75,21 +75,22 @@ npx wrangler d1 execute watch-dog-db --local --file=src/db.sql
 npx wrangler d1 execute watch-dog-db --remote --file=src/db.sql
 ```
 
-### 4. Set the Admin Password
+### 4. Set the Admin Credentials
 
-The `/admin` dashboard sits behind HTTP Basic Auth (any username; the password
-is the `ADMIN_TOKEN` Worker secret):
+The `/admin` dashboard sits behind HTTP Basic Auth — an account/password pair,
+both set as Worker secrets and both verified:
 
 ```bash
 # Generate a strong password
 openssl rand -hex 24
 
-# Set it as a Worker secret (prompted interactively)
-npx wrangler secret put ADMIN_TOKEN
+# Set both Worker secrets (prompted interactively)
+npx wrangler secret put ADMIN_ACCOUNT
+npx wrangler secret put ADMIN_PASSWORD
 ```
 
-For local dev, copy `.dev.vars.example` to `.dev.vars` and set `ADMIN_TOKEN`
-there instead.
+For local dev, copy `.dev.vars.example` to `.dev.vars` and set
+`ADMIN_ACCOUNT` / `ADMIN_PASSWORD` there instead.
 
 ### 5. Deploy
 
@@ -126,7 +127,7 @@ scripts/enroll.sh my-service 我的服務
 | `/api/status` | GET | public | Get all statuses |
 | `/api/status/:projectId` | GET | public | Get project status |
 | `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
-| `/admin` | GET | Basic Auth (`ADMIN_TOKEN`) | Admin dashboard |
+| `/admin` | GET | Basic Auth (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`) | Admin dashboard |
 
 ## Development
 

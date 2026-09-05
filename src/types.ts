@@ -26,15 +26,19 @@ export interface Env {
 }
 
 /**
- * Bindings for the Hono app: Env plus the admin auth secret.
+ * Bindings for the Hono app: Env plus the admin auth pair.
  */
 export interface AppBindings extends Env {
   /**
-   * Password for the /admin Basic-Auth gate, set via
-   * `wrangler secret put ADMIN_TOKEN` (or .dev.vars locally).
-   * The username is ignored — any username works.
+   * Basic-Auth account for the /admin gate, set via
+   * `wrangler secret put ADMIN_ACCOUNT` (or .dev.vars locally).
    */
-  ADMIN_TOKEN?: string;
+  ADMIN_ACCOUNT?: string;
+  /**
+   * Basic-Auth password for the /admin gate, set via
+   * `wrangler secret put ADMIN_PASSWORD` (or .dev.vars locally).
+   */
+  ADMIN_PASSWORD?: string;
 }
 
 /**

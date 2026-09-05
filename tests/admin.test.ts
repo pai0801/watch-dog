@@ -18,8 +18,10 @@ import {
   TEST_SLACK,
 } from './utils';
 
+const ADMIN_ACCOUNT = 'test-admin';
 const ADMIN_PASSWORD = 'test-admin-token';
-const basic = (password: string) => `Basic ${btoa(`admin:${password}`)}`;
+const basic = (password: string, account: string = ADMIN_ACCOUNT) =>
+  `Basic ${btoa(`${account}:${password}`)}`;
 const XHR = { 'X-Requested-With': 'XMLHttpRequest' };
 
 beforeEach(async () => {
@@ -40,13 +42,20 @@ describe('GET /admin — Basic Auth gate', () => {
     expect(res.status).toBe(401);
   });
 
-  it('accepts the correct password (any username)', async () => {
+  it('accepts the correct account + password pair', async () => {
     const res = await SELF.fetch('http://localhost/admin', {
       headers: { Authorization: basic(ADMIN_PASSWORD) },
     });
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('Admin Dashboard');
+  });
+
+  it('rejects the correct password with a wrong username (401)', async () => {
+    const res = await SELF.fetch('http://localhost/admin', {
+      headers: { Authorization: basic(ADMIN_PASSWORD, 'intruder') },
+    });
+    expect(res.status).toBe(401);
   });
 
   it('never echoes the stored Slack token into the page', async () => {

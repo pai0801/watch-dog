@@ -17,22 +17,23 @@ BASE_URL="${WATCHDOG_URL:-https://watch-dog.helperp.workers.dev}"
   echo "✗ project_id 格式：1-63 字小寫英數＋連字符，開頭須英數" >&2; exit 2;
 }
 
-# ADMIN_TOKEN 本地來源（與 seal/deploy 同一模型：值不出現在指令列參數、不進 git）
-[ -f .dev.vars ] || { echo "✗ 找不到 .dev.vars（ADMIN_TOKEN）——先用 secrets-archive/restore.sh 還原" >&2; exit 1; }
-ADMIN_PW="$(grep '^ADMIN_TOKEN=' .dev.vars | cut -d= -f2-)"
-[ -n "$ADMIN_PW" ] || { echo "✗ .dev.vars 無 ADMIN_TOKEN" >&2; exit 1; }
+# admin 帳密本地來源（與 seal/deploy 同一模型：值不出現在指令列參數、不進 git）
+[ -f .env ] || { echo "✗ 找不到 .env（ADMIN_ACCOUNT/ADMIN_PASSWORD）——先用 secrets-archive/restore.sh 還原" >&2; exit 1; }
+ADMIN_ACCOUNT="$(grep '^ADMIN_ACCOUNT=' .env | cut -d= -f2-)"
+ADMIN_PW="$(grep '^ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+[ -n "$ADMIN_ACCOUNT" ] && [ -n "$ADMIN_PW" ] || { echo "✗ .env 缺 ADMIN_ACCOUNT/ADMIN_PASSWORD" >&2; exit 1; }
 
 TOKEN="$(openssl rand -hex 24)"
 
-# 建立（302 = 成功 redirect 回 /admin；401 = ADMIN_TOKEN 不對）
+# 建立（302 = 成功 redirect 回 /admin；401 = 帳密不對）
 HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/admin/projects/new" \
-  -u "admin:$ADMIN_PW" -H 'X-Requested-With: XMLHttpRequest' \
+  -u "$ADMIN_ACCOUNT:$ADMIN_PW" -H 'X-Requested-With: XMLHttpRequest' \
   --data-urlencode "project_id=$PROJECT_ID" \
   --data-urlencode "display_name=$DISPLAY_NAME" \
   --data-urlencode "token=$TOKEN")" || HTTP_CODE="000"
 case "$HTTP_CODE" in
   200|302) ;;
-  *) echo "✗ 建立失敗（HTTP $HTTP_CODE）——已存在？ADMIN_TOKEN 對嗎？（管理頁：$BASE_URL/admin）" >&2; exit 1;;
+  *) echo "✗ 建立失敗（HTTP $HTTP_CODE）——已存在？admin 帳密對嗎？（管理頁：$BASE_URL/admin）" >&2; exit 1;;
 esac
 
 # 本地 token 清單（gitignored；patterns 見 .gitignore）

@@ -15,7 +15,7 @@ files = [".env", ".dev.vars", "docs/tokens.local.md"]
 #
 # CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID（.env）= deploy-time shell 憑證，非 worker
 # runtime binding → 不在此（alliance-member 先例），見 secrets-archive/SECRETS.md。
-worker = ["ADMIN_TOKEN"]
+worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD"]
 
 # optional_worker = runtime 會讀、但缺了不影響核心功能的 secret（10 §5.2 try* accessor 模式；
 # topreview-hotel 先例：optional 不列入 required worker 合約）。
@@ -23,15 +23,39 @@ worker = ["ADMIN_TOKEN"]
 # D1 settings 表為單一真相源，現無 optional worker secret。
 optional_worker = []
 
-# legacy_names(10 §3 / guard §J)：既有命名 drift 允許清單。目前無。
+# legacy_names(10 §3 / guard §J)：命名 drift 允許清單。
+# ADMIN_ACCOUNT/ADMIN_PASSWORD（2026-09-05 起）：操作者指定的帳密「成對」命名——
+# _ACCOUNT/_PASSWORD 的成對語義比 {VENDOR}_{ROLE}_{TYPE} 的單值尾綴規約更明確，
+# 裁定列入 allowlist（取代原本恰好合法的單一 ADMIN_TOKEN）。
+legacy_names = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD"]
 
 [[secrets.meta]]
+name = "ADMIN_ACCOUNT"
+env = "all"
+authority = "B"   # 雲端 wrangler secret put；本機 .env/.dev.vars（secrets-archive 備份）
+provenance = "操作者自訂 admin Basic-Auth 帳號（2026-09-05 從單一 ADMIN_TOKEN 改為帳密成對）"
+shared_across = []
+last_rotated = "2026-09-05（首次設定，值來自操作者 .env）"
+owner = "@peter"
+
+[[secrets.meta]]
+name = "ADMIN_PASSWORD"
+env = "all"
+authority = "B"
+provenance = "操作者自產 admin Basic-Auth 密碼（2026-09-05 從單一 ADMIN_TOKEN 改為帳密成對）"
+shared_across = []
+last_rotated = "2026-09-05（首次設定，值來自操作者 .env）"
+owner = "@peter"
+
+[[secrets.meta]]
+# ADMIN_TOKEN（單一密碼、username 忽略）已於 2026-09-05 被 ADMIN_ACCOUNT/ADMIN_PASSWORD
+# 成對模型取代——worker secret 已刪，此 meta 區塊保留歷史記錄。
 name = "ADMIN_TOKEN"
 env = "all"
-authority = "B"   # 雲端 wrangler secret put；本機 .dev.vars（secrets-archive 備份）
-provenance = "自產 admin Basic-Auth 密碼（openssl rand -hex 24；使用者自選/自產）"
+authority = "B"
+provenance = "（歷史）自產 admin Basic-Auth 密碼（openssl rand -hex 24）；2026-09-05 起由帳密成對模型取代"
 shared_across = []
-last_rotated = "2026-09-04（dev 值首次入庫；prod 尚未部署，首次部署時設定）"
+last_rotated = "已移除（2026-09-05）——現行見 ADMIN_ACCOUNT/ADMIN_PASSWORD"
 owner = "@peter"
 
 [[secrets.meta]]

@@ -9,7 +9,7 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
         // Test-only bindings (overrides .dev.vars / secrets)
-        bindings: { ADMIN_TOKEN: 'test-admin-token' },
+        bindings: { ADMIN_ACCOUNT: 'test-admin', ADMIN_PASSWORD: 'test-admin-token' },
       },
     }),
   ],

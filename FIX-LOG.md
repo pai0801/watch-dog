@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] /admin 帳密成對驗證——ADMIN_ACCOUNT＋ADMIN_PASSWORD 取代單一 ADMIN_TOKEN
+
+**目標**：把 admin 登入從「username 任意＋密碼=ADMIN_TOKEN」升級為操作者指定的帳密成對模型（`.env` 的 `ADMIN_ACCOUNT`/`ADMIN_PASSWORD`）。
+**原因**：操作者設定並指示採用成對帳密；成對模型對即將上線的 Cloudflare Access（Zero Trust）第二層語義也更清晰（帳號身分＋密碼證明，而非半套憑證）。
+**預期結果**：`adminAuth.ts` 帳密皆 `timingSafeEqual`（缺一 401；username 不再忽略；Basic 編碼無冒號直接 challenge）；三方同步換鑰——`wrangler.jsonc secrets.required`、`REQUIRED_BINDING_KEYS`、`.portability.toml [secrets].worker`（meta 三塊：兩新＋ADMIN_TOKEN 保留為歷史記錄）；**§J 命名規約裁定**：`_ACCOUNT`/`_PASSWORD` 非合法 `{VENDOR}_{ROLE}_{TYPE}` 尾綴，列入 `legacy_names` allowlist（成對語義優先於單值尾綴規約）；`vitest.config.ts` 測試 bindings、`.dev.vars.example`、`enroll.sh`（改讀 `.env` 帳密）、`.dev.vars`（同步兩鍵、刪 ADMIN_TOKEN）、文件（usage/README/SECRETS）同步；`ADMIN_TOKEN` worker secret 刪除。
+**範圍**：`src/{middleware/adminAuth.ts,lib/bindings.ts,types.ts}`、`wrangler.jsonc`、`.portability.toml`、`vitest.config.ts`、`tests/{admin,bindings}.test.ts`、`scripts/enroll.sh`、`.dev.vars.example`、`docs/{usage.md,README.md}`、`secrets-archive/{SECRETS.md,env.7z}`（re-seal：.env/.dev.vars 變動）、`.dev.vars`（非 committed）。
+**驗證**：app pool **73/73** ✓（+1：錯 username 401；「any username」測試改為成對）guards 21/21 ✓（§F/§G/§H 三方同步新鑰、§J 靠 legacy_names）；部署 `702a295f` 後線上——正確帳密 200、錯帳號 401、錯密碼 401、無認證 401、舊單密碼用法 401；`wrangler secret delete ADMIN_TOKEN` 完成（`secret list` 僅餘兩新鑰）。
+
 ### [2026-09-05] Admin 界面功能補全——測試警報／token 生命週期／Logs 檢視器（＋Zero Trust 前置文件）
 
 **目標**：把管理界面做足——修三個盲區：① Slack 路由設定後無法當場驗證（此前只能靠手動 e2e 或等真事故）；② token 只能經 enroll.sh 一次性產生（UI 建立要手編、無輪替能力）；③ `logs` 表有 7 天 pulse 史但 admin 完全看不到。

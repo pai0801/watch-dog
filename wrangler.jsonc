@@ -37,6 +37,6 @@
 	// wrangler secret put ADMIN_TOKEN → add the block back (10 §5.1).
 	// (2026-09-05 已依此流程完成首次部署——平時這個區塊 [MUST] 保持在位。)
 	"secrets": {
-		"required": ["ADMIN_TOKEN"]
+		"required": ["ADMIN_ACCOUNT", "ADMIN_PASSWORD"]
 	}
 }

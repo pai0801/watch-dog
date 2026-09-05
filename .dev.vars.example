@@ -1,9 +1,10 @@
 # Copy to .dev.vars for local development (wrangler dev / vitest).
 # This file is committed as documentation — never put real values here.
 
-# Password for the /admin Basic-Auth gate (username is ignored).
-# Generate one with: openssl rand -hex 24
-ADMIN_TOKEN=change-me-local-admin
+# Basic-Auth pair for the /admin gate (both required, both verified).
+# Password: generate one with `openssl rand -hex 24`; account is your choice.
+ADMIN_ACCOUNT=change-me-local-account
+ADMIN_PASSWORD=change-me-local-admin
 
 # --- Slack settings ---------------------------------------------------------
 # Settings live in the D1 settings table (configured via /admin) — the single

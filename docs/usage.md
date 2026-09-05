@@ -5,7 +5,7 @@
 ## 服務地址
 
 - **Watch-Dog URL**: `https://watch-dog.helperp.workers.dev/`
-- **Admin 管理頁面**: `https://watch-dog.helperp.workers.dev/admin`（Basic Auth，密碼 = `ADMIN_TOKEN` Worker secret，用戶名任意）
+- **Admin 管理頁面**: `https://watch-dog.helperp.workers.dev/admin`（Basic Auth——帳號 = `ADMIN_ACCOUNT`、密碼 = `ADMIN_PASSWORD` 兩個 Worker secrets，成對驗證）
 
 ## 概述
 
@@ -17,7 +17,7 @@ Watch-Dog Sentinel 是**被動監控系統**（Dead Man's Switch）。服務主�
 |------|------|
 | **Project Token** | 每個專案獨立的 token，客戶端 API 認證用（Bearer only） |
 | **Slack API Token / 頻道** | 全域設定，存於 D1 `settings` 表（`/admin` 設定）——**不是** Worker secret |
-| **Admin 密碼 (`ADMIN_TOKEN`)** | `/admin` 頁面的 Basic Auth 密碼（這才是 Worker secret） |
+| **Admin 帳密 (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`)** | `/admin` 頁面的 Basic Auth 帳號＋密碼（2026-09-05 起成對驗證，取代單一 ADMIN_TOKEN） |
 | **Monitor 開關** | 勾選 = 監控該 check；不勾 = 照收 pulse 但不警報 |
 
 > **安全提示**：`/api/maintenance/:projectId` 也需要 Project Token；Slack API Token 在表單只顯示遮罩，留空送出 = 保留現有值。
@@ -76,7 +76,7 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 操作者計畫在 edge 加 Cloudflare Access（Zero Trust）防護。與本系統的關係：
 
 - **建議範圍**：至少涵蓋 `/admin*`；更保守可整域（dashboard 與 `/api/status` 為公開唯讀，machine API `/api/pulse` 等需要 client 直連——若整域上 Access，**client 的 pulse 會被擋**，需為 machine API 路徑設 bypass 或用 Service Auth token）。
-- **與 Basic Auth 的關係**：Access（edge 的 SSO/email 驗證）在前、Basic Auth（`ADMIN_TOKEN`）在後——兩層保留，Access 上線後 Basic Auth 就是第二層縱深，不需移除。
+- **與 Basic Auth 的關係**：Access（edge 的 SSO/email 驗證）在前、Basic Auth（`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`）在後——兩層保留，Access 上線後 Basic Auth 就是第二層縱深，不需移除。
 - **程式面**：無需改碼。Access 驗證通過後會帶 `Cf-Access-User` 等 header，未來若想把 admin 身分從 Basic Auth 換成 Access 身分再另行規劃。
 
 ## 檢查參數（含實際 clamp）
@@ -118,4 +118,4 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/maintenance/my-service" 
 
 1. **Token 保密** — 不 commit 進 repo，走環境變數 / secrets 管理管道
 2. **Token 強度** — 至少 16 字元隨機值
-3. **ADMIN_TOKEN 輪替** — 換值後 `wrangler secret put ADMIN_TOKEN`＋所有瀏覽器需重新輸入
+3. **Admin 帳密輪替** — 換值後 `wrangler secret put ADMIN_ACCOUNT`／`ADMIN_PASSWORD`＋所有瀏覽器需重新輸入

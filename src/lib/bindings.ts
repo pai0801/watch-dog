@@ -17,7 +17,7 @@
 import type { AppBindings } from '../types';
 
 /** Required runtime secrets (= .portability.toml [secrets].worker). */
-export const REQUIRED_BINDING_KEYS = ['ADMIN_TOKEN'] as const;
+export const REQUIRED_BINDING_KEYS = ['ADMIN_ACCOUNT', 'ADMIN_PASSWORD'] as const;
 
 /**
  * Optional runtime secrets — read through accessors below.
