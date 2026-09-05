@@ -32,6 +32,8 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+# 本地 token 清單（scripts/enroll.sh 寫入；值 [NEVER] 進 committed 檔）
+docs/tokens.local.md
 
 .dev.vars*
 !.dev.vars.example

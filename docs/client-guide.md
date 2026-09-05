@@ -37,7 +37,7 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
 | 事項 | 說明 |
 |---|---|
 | 認證方式 | `Authorization: Bearer {project_token}`（**僅此一途**，舊 `X-Project-Token` header 已移除） |
-| Token 取得 | 向操作者索取（操作者在 `/admin` 建立 project 時設定 token，至少 16 字元）。**註冊不開放自助**——`PUT /api/config` 對未知 project 回 404，防止陌生人建立 check 打警報進 Slack |
+| Token 取得 | 向操作者索取（操作者跑 `scripts/enroll.sh <project-id>` 一行完成：生 token、建 project、印出 env 三行，記錄於其本地 `docs/tokens.local.md`）。**註冊不開放自助**——`PUT /api/config` 對未知 project 回 404，防止陌生人建立 check 打警報進 Slack |
 | Token 保管 | 至少 16 字元隨機值；放環境變數 / 該專案的 secrets 管理，[NEVER] commit 進 repo |
 | 401 vs 403 | 401 = 沒帶 token；403 = token 不對（或與 project 不符） |
 

@@ -71,6 +71,14 @@ submitted empty.
 - **Monitoring a service?** Start with the [Client Guide](docs/client-guide.md) — 30-second integration, copy-paste examples (shell / Node / Python), and a ready-made block for your repo's AI agent.
 - **Operating this sentinel?** See the [Operator Guide](docs/usage.md).
 
+### 接入新服務（操作者，一行）
+
+```bash
+scripts/enroll.sh my-service 我的服務
+```
+
+自動生 token、建 project（含 `self` check）、印出 client 專案要貼的三行 env（`WATCHDOG_URL` / `WATCHDOG_PROJECT` / `WATCHDOG_TOKEN`），並記到本地 `docs/tokens.local.md`（**gitignored**——private repo 也不把 token 值寫進 committed 檔：本 repo 的 pre-commit 值級掃描會擋，且 2026-02-02 曾因 docs 內文明 token 付出輪替代價）。
+
 ## API Endpoints
 
 | Endpoint | Method | Auth | Description |
