@@ -47,6 +47,10 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
         @click="openTab = 'checks'"
         :class="openTab === 'checks' ? 'primary' : 'outline secondary'"
       >Checks</button>
+      <button
+        @click="openTab = 'logs'"
+        :class="openTab === 'logs' ? 'primary' : 'outline secondary'"
+      >Logs</button>
     </nav>
   </header>
 
@@ -120,6 +124,29 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
       </div>
       <button type="submit" class="primary">Save Settings</button>
     </form>
+
+    <div style="margin-top: 1.5rem; border-top: 1px solid #333; padding-top: 1rem;">
+      <h3>測試警報</h3>
+      <p><small>送一通真實訊息到對應頻道，當場驗證 token／頻道路由（成敗顯示於右側）。</small></p>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button type="button" class="outline secondary"
+          hx-post="/admin/settings/slack-test" hx-vals='{"level":"critical"}'
+          hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+          hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('slack-test-result').textContent = r.ok ? '✓ 已送達（critical 頻道）' : '✗ ' + (r.error || 'failed')"
+        >🚨 Test Critical</button>
+        <button type="button" class="outline secondary"
+          hx-post="/admin/settings/slack-test" hx-vals='{"level":"warning"}'
+          hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+          hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('slack-test-result').textContent = r.ok ? '✓ 已送達（warning 頻道）' : '✗ ' + (r.error || 'failed')"
+        >⚠️ Test Warning</button>
+        <button type="button" class="outline secondary"
+          hx-post="/admin/settings/slack-test" hx-vals='{"level":"recovery"}'
+          hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+          hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('slack-test-result').textContent = r.ok ? '✓ 已送達（success 頻道）' : '✗ ' + (r.error || 'failed')"
+        >✅ Test Recovery</button>
+        <span id="slack-test-result" style="color: #aaa;"></span>
+      </div>
+    </div>
   </div>
 
   <!-- Projects Tab -->
@@ -139,6 +166,7 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
           <tr>
             <th>Display Name</th>
             <th>Project ID</th>
+            <th>Token</th>
             <th>Checks</th>
             <th>Maintenance Until</th>
             <th>Actions</th>
@@ -149,9 +177,19 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
             <tr>
               <td>${p.display_name}</td>
               <td><code>${p.id}</code></td>
+              <td><code>${maskToken(p.token)}</code></td>
               <td>${p.checks.length}</td>
               <td>${p.maintenance_until > 0 ? new Date(p.maintenance_until * 1000).toLocaleString() : 'Not in maintenance'}</td>
               <td style="white-space: nowrap;">
+                <button
+                  hx-post="/admin/projects/${p.id}/rotate-token"
+                  hx-headers='{"X-Requested-With": "XMLHttpRequest"}'
+                  hx-target="#modal-container"
+                  hx-swap="innerHTML"
+                  hx-confirm="輪替 token？舊 token 立即失效，client 專案需同步更新 env。"
+                  class="outline secondary"
+                  style="font-size: 0.75rem;"
+                >Rotate Token</button>
                 <button
                   hx-post="/admin/projects/${p.id}/maintenance"
                   hx-vals='{"enabled": true, "duration": 3600}'
@@ -273,6 +311,39 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
     </div>`;
         })
         .join(''))}
+    </div>
+  </div>
+
+  <!-- Logs Tab -->
+  <div x-show="openTab === 'logs'" x-cloak>
+    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;">
+      <h2 style="margin: 0;">Pulse Logs（7 天保留）</h2>
+      <select name="project" hx-get="/admin/logs" hx-trigger="change" hx-target="#logs-body" hx-swap="outerHTML" hx-include="[name='limit']" style="padding: 0.5rem;">
+        <option value="">全部專案</option>
+        ${raw(projects.map(p => html`<option value="${p.id}">${p.display_name}</option>`).join(''))}
+      </select>
+      <select name="limit" style="padding: 0.5rem;">
+        <option value="50">50 筆</option>
+        <option value="100">100 筆</option>
+        <option value="200">200 筆</option>
+      </select>
+      <button type="button" class="outline secondary" hx-get="/admin/logs" hx-target="#logs-body" hx-swap="outerHTML" hx-include="[name='project'],[name='limit']">Refresh</button>
+    </div>
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <table class="checks-table striped" style="font-size: 0.8rem; width: 100%; min-width: max-content;">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Check</th>
+            <th>Status</th>
+            <th>Latency (ms)</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="logs-body" hx-get="/admin/logs" hx-trigger="load" hx-include="[name='project'],[name='limit']">
+          <tr><td colspan="5" style="color: #888;">載入中…</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 

@@ -61,11 +61,20 @@ const STYLE_MAP: Record<AlertLevel, { emoji: string; color: string }> = {
   warning: { emoji: '⚠️', color: '#F59E0B' },   // Orange
 };
 
+/** Result of a Slack send attempt — lets callers (e.g. the admin test-alert
+ *  button) report delivery success/failure instead of guessing from logs. */
+export interface SlackSendResult {
+  ok: boolean;
+  /** Failure reason when ok === false (settings missing, Slack API error, network error). */
+  error?: string;
+}
+
 /**
  * Send an alert to Slack using the Block Kit API
  *
  * @param db - D1 database for fetching settings
  * @param data - Alert data
+ * @returns Delivery result; cron callers ignore it, admin surfaces it
  *
  * @example
  * ```ts
@@ -80,7 +89,7 @@ const STYLE_MAP: Record<AlertLevel, { emoji: string; color: string }> = {
  * });
  * ```
  */
-export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Promise<void> {
+export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Promise<SlackSendResult> {
   const {
     checkId,
     projectName,
@@ -99,7 +108,7 @@ export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Prom
   const token = settings.api_token;
   if (!token) {
     console.error('[Slack] Slack API token not configured, skipping alert');
-    return;
+    return { ok: false, error: 'Slack API token not configured（/admin → Settings）' };
   }
 
   // Get channel ID for this alert level
@@ -107,7 +116,7 @@ export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Prom
   const channelId = String(settings[channelKey] ?? '');
   if (!channelId) {
     console.error(`[Slack] Channel for ${level} alerts not configured, skipping alert`);
-    return;
+    return { ok: false, error: `Channel for ${level} alerts not configured（/admin → Settings）` };
   }
 
   // Get style configuration
@@ -223,9 +232,12 @@ export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Prom
 
     if (!result.ok) {
       console.error(`[Slack] API Error: ${result.error}`);
+      return { ok: false, error: `Slack API: ${result.error ?? 'unknown error'}` };
     }
+    return { ok: true };
   } catch (error) {
     console.error('[Slack] Failed to send alert:', error);
+    return { ok: false, error: `Slack request failed: ${String(error)}` };
   }
 }
 

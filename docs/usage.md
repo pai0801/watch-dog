@@ -49,19 +49,35 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 
 把 [client-guide.md](client-guide.md) 給客戶端專案的維護者（或其 agent）——裡面有 30 秒最小閉環、三種語言範例、和可直接貼進 client repo CLAUDE.md 的 agent 指示塊。
 
-## Admin 管理頁面
+## Admin 管理頁面（四標籤）
 
 ### Settings 標籤
 - Slack API Token 與頻道 ID（Token 遮罩顯示，留空送出 = 保留）
 - 警報全局靜默期
+- **測試警報**：三顆按鈕（critical／warning／recovery）各送一通真實訊息到對應頻道，**當場顯示送達成敗**（✓ 或具體錯誤——token 未設、頻道未設、Slack API 拒絕）——修完設定按一下就知道通了沒
 
 ### Projects 標籤
-- 查看所有專案、建立、刪除（刪除連同 checks/logs）
+- 查看所有專案（含 token 遮罩）、建立、刪除（刪除連同 checks/logs）
+- **New Project 對話框「🎲 產生」**：server 端生 48-hex token（與 `scripts/enroll.sh` 同款）
+- **Rotate Token**：輪替專案 token——舊值立即失效，新值**只顯示一次**（modal）；記得同步 client env 與本機 `docs/tokens.local.md`
+- Mute 1h / Unmute（維護模式）
 
 ### Checks 標籤
-- 查看所有 check 狀態
+- 查看所有 check 狀態（依專案過濾、可展開）
 - **Monitor checkbox**：勾選 = 監控、不勾 = 暫停
 - 編輯（interval/grace/threshold/cooldown）、刪除
+
+### Logs 標籤
+- 最近 pulse 歷史（`logs` 表，cron 每 7 天清除）：時間／check／狀態／latency／訊息
+- 依專案過濾＋筆數上限（50/100/200）
+
+## Zero Trust（Cloudflare Access）前置規劃
+
+操作者計畫在 edge 加 Cloudflare Access（Zero Trust）防護。與本系統的關係：
+
+- **建議範圍**：至少涵蓋 `/admin*`；更保守可整域（dashboard 與 `/api/status` 為公開唯讀，machine API `/api/pulse` 等需要 client 直連——若整域上 Access，**client 的 pulse 會被擋**，需為 machine API 路徑設 bypass 或用 Service Auth token）。
+- **與 Basic Auth 的關係**：Access（edge 的 SSO/email 驗證）在前、Basic Auth（`ADMIN_TOKEN`）在後——兩層保留，Access 上線後 Basic Auth 就是第二層縱深，不需移除。
+- **程式面**：無需改碼。Access 驗證通過後會帶 `Cf-Access-User` 等 header，未來若想把 admin 身分從 Basic Auth 換成 Access 身分再另行規劃。
 
 ## 檢查參數（含實際 clamp）
 

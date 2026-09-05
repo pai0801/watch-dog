@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] Admin 界面功能補全——測試警報／token 生命週期／Logs 檢視器（＋Zero Trust 前置文件）
+
+**目標**：把管理界面做足——修三個盲區：① Slack 路由設定後無法當場驗證（此前只能靠手動 e2e 或等真事故）；② token 只能經 enroll.sh 一次性產生（UI 建立要手編、無輪替能力）；③ `logs` 表有 7 天 pulse 史但 admin 完全看不到。
+**原因**：操作者指示「查管理界面、功能做足做全，自行規劃優化」；部署後的營運高頻操作（驗證警報鏈、token 輪替、排查 pulse 歷史）不該退回 curl。Zero Trust 為操作者後續計畫，先行文件預留。
+**預期結果**：`sendSlackAlert` 回傳 `SlackSendResult{ok,error}`（token 未設／頻道未設／Slack API 錯誤／網路錯誤皆帶原因；cron 呼叫端忽略回傳值，行為不變）。新四端點：`POST /admin/settings/slack-test`（level ∈ critical|warning|recovery，真送一通並回報成敗）、`GET /admin/generate-token`（`crypto.getRandomValues` 48-hex，與 enroll.sh 同款）、`POST /admin/projects/:id/rotate-token`（舊值立即失效、新值 modal 只顯示一次＋提醒同步 client env／tokens.local.md）、`GET /admin/logs`（project 前綴過濾＋`escapeLikePattern` 防 sibling 洩漏＋limit clamp 1–200，回 tbody htmx 片段）。UI：Settings 測試警報三鈕（結果走純 DOM 更新——`hx-on` 內赋值寫不進 Alpine scope 的陷阱）；Projects 表 token 遮罩欄＋Rotate 鈕；New Project 對話框 🎲 產生鈕；第四個 Logs tab（專案過濾＋筆數＋htmx 載入）。文件：usage.md 四標籤＋**Zero Trust（Cloudflare Access）前置規劃**（至少蓋 `/admin*`；整域上線時 machine API 需 bypass／Service Auth 否則 pulse 被擋；Basic Auth 保留為第二層縱深；無需改碼）。
+**範圍**：`src/services/alert.ts`（回傳型別）、`src/routes/admin.ts`（+4 端點＋dialog 產生鈕）、`src/views/adminViews.ts`、`tests/admin.test.ts`（+8）、`docs/usage.md`。無 schema、無 secret 變動。
+**驗證**：app pool **72/72** ✓（64+8）guards 21/21 ✓ tsc+eslint ✓；部署 `b6a1e9f2` 後線上逐項——slack-test critical `{"ok":true}`（真訊息已達頻道）、無效 level 400、generate-token 48-hex、rotate 舊 token 403／新 token 200、logs 無認證 401／有認證回真實資料（首個真實專案 `ek-dev` 的 pulse 史）、admin 頁 Logs tab 在位；演示專案已清除（ek-dev 為操作者真實資料，未動）。
+
 ### [2026-09-05] 註冊封閉化（closed registration）＋ admin token 強度 server-side——TODO-REVIEW #17/#18 清償
 
 **目標**：消除開放註冊的攻擊面：任何人可經 `PUT /api/config` 建 check → 不發 pulse → 判死警報打進操作者 Slack（**警報通道虐待**——alert fatigue 會淹掉真警報）；且 API 建立的 project token 無強度檢查，而 pulse 未帶 `project_id` 時以 token 反查專案 → 弱 token = 可猜身分。

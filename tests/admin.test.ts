@@ -4,6 +4,8 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network';
 import {
   DB,
   getProject,
@@ -12,6 +14,7 @@ import {
   seedCheck,
   seedProject,
   setSetting,
+  setSlackSettings,
   TEST_SLACK,
 } from './utils';
 
@@ -224,5 +227,132 @@ describe('public dashboard', () => {
     expect(html).toContain('Test Project'); // display name is rendered
     // The public dashboard must not expose maintenance controls anymore
     expect(html).not.toContain('hx-post="/api/maintenance/');
+  });
+});
+
+describe('admin feature round 2026-09-05 — slack-test / token lifecycle / logs', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  const postForm = (url: string, body: string) =>
+    SELF.fetch(`http://localhost${url}`, {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+  it('POST /admin/settings/slack-test delivers to the level channel and reports ok', async () => {
+    let posted = '';
+    network.use(http.post('https://slack.com/api/chat.postMessage', async ({ request }) => {
+      posted = await request.text();
+      return HttpResponse.json({ ok: true });
+    }));
+
+    const res = await postForm('/admin/settings/slack-test', 'level=critical');
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean }>();
+    expect(body.ok).toBe(true);
+    expect(posted).toContain(TEST_SLACK.channel_critical);
+  });
+
+  it('POST /admin/settings/slack-test surfaces Slack API errors as ok:false', async () => {
+    network.use(http.post('https://slack.com/api/chat.postMessage', () =>
+      HttpResponse.json({ ok: false, error: 'channel_not_found' })));
+
+    const res = await postForm('/admin/settings/slack-test', 'level=warning');
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; error?: string }>();
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('channel_not_found');
+  });
+
+  it('POST /admin/settings/slack-test reports unconfigured token instead of silently passing', async () => {
+    await DB.prepare('DELETE FROM settings').run();
+
+    const res = await postForm('/admin/settings/slack-test', 'level=recovery');
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; error?: string }>();
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('not configured');
+  });
+
+  it('POST /admin/settings/slack-test rejects an invalid level (400)', async () => {
+    const res = await postForm('/admin/settings/slack-test', 'level=info');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /admin/generate-token returns a 48-hex token (enroll.sh-equivalent)', async () => {
+    const res = await SELF.fetch('http://localhost/admin/generate-token', {
+      headers: { Authorization: basic(ADMIN_PASSWORD) },
+    });
+    expect(res.status).toBe(200);
+    const { token } = await res.json<{ token: string }>();
+    expect(token).toMatch(/^[0-9a-f]{48}$/);
+  });
+
+  it('POST /admin/projects/:id/rotate-token rotates — old token 403, new token works', async () => {
+    await seedProject({ id: 'svc', token: 'old-token-1234567890abcdef' });
+
+    const res = await SELF.fetch('http://localhost/admin/projects/svc/rotate-token', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR },
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const match = text.match(/[0-9a-f]{48}/);
+    if (!match) throw new Error(`no token revealed in fragment: ${text.slice(0, 120)}`);
+    const newToken = match[0];
+    expect(await getProject('svc')).toMatchObject({ token: newToken });
+
+    // the revealed-once fragment is behind the auth gate
+    expect(text).toContain('只顯示這一次');
+
+    const configWith = (token: string) =>
+      SELF.fetch('http://localhost/api/config', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: 'svc', display_name: 'Svc', checks: [] }),
+      });
+    expect((await configWith('old-token-1234567890abcdef')).status).toBe(403);
+    expect((await configWith(newToken)).status).toBe(200);
+  });
+
+  it('GET /admin/logs filters by project, respects limit, requires auth', async () => {
+    await seedProject({ id: 'a', token: 'tok-a-1234567890' });
+    await seedProject({ id: 'b', token: 'tok-b-1234567890' });
+    for (let i = 0; i < 3; i++) {
+      await DB.prepare("INSERT INTO logs (check_id, status, latency, message, created_at) VALUES ('a:hb', 'ok', 10, 'm', ?)")
+        .bind(1700000000 + i)
+        .run();
+    }
+    await DB.prepare("INSERT INTO logs (check_id, status, created_at) VALUES ('b:hb', 'ok', 1700000000)").run();
+
+    const unauth = await SELF.fetch('http://localhost/admin/logs');
+    expect(unauth.status).toBe(401);
+
+    const res = await SELF.fetch('http://localhost/admin/logs?project=a&limit=2', {
+      headers: { Authorization: basic(ADMIN_PASSWORD) },
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('a:hb');
+    expect(text).not.toContain('b:hb');
+    expect((text.match(/<tr>/g) ?? []).length).toBe(2); // limit honored
+  });
+
+  it('GET /admin/logs escapes LIKE wildcards in the project prefix', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    await seedProject({ id: 'svc-2', token: 'tok-1234567891' });
+    await DB.prepare("INSERT INTO logs (check_id, status, created_at) VALUES ('svc:hb', 'ok', 1700000000)").run();
+    await DB.prepare("INSERT INTO logs (check_id, status, created_at) VALUES ('svc-2:hb', 'ok', 1700000000)").run();
+
+    const res = await SELF.fetch('http://localhost/admin/logs?project=svc', {
+      headers: { Authorization: basic(ADMIN_PASSWORD) },
+    });
+    const text = await res.text();
+    expect(text).toContain('svc:hb');
+    expect(text).not.toContain('svc-2:hb'); // anchored on `project:` — no sibling bleed
   });
 });

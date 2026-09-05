@@ -3,11 +3,12 @@
 // (see middleware/adminAuth.ts) — the token-auth public API lives in api.ts.
 
 import { Hono } from 'hono';
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
 import { escapeLikePattern, isValidProjectId } from '../lib/validate';
 import { getAllSettings, updateSlackSettings, updateSetting } from '../services/settings';
+import { sendSlackAlert, type AlertLevel } from '../services/alert';
 import { setMaintenance } from '../services/maintenance';
 import { Layout } from '../views/layout';
 import { AdminPage, type AdminProject } from '../views/adminViews';
@@ -132,6 +133,143 @@ admin.post('/admin/settings/slack', async (c) => {
       </div>
     `);
   }
+});
+
+/**
+ * POST /admin/settings/slack-test
+ * Fire a test alert through the real alert chain (settings → Slack API) and
+ * report delivery success/failure — closing the "unverified until a real
+ * incident" gap. Level must be one the router actually maps to a channel.
+ */
+admin.post('/admin/settings/slack-test', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.parseBody();
+  const level = body.level as string;
+
+  if (level !== 'critical' && level !== 'warning' && level !== 'recovery') {
+    return c.json({ ok: false, error: 'invalid level (critical | warning | recovery)' }, 400);
+  }
+
+  const result = await sendSlackAlert(db, {
+    checkId: 'admin:test-alert',
+    projectName: 'Watch-Dog Admin',
+    checkName: 'Test Alert',
+    level: level as AlertLevel,
+    title: `測試警報（${level}）`,
+    message: '由管理界面發出的測試警報——驗證 Slack 路由設定，可安全忽略。',
+    metadata: { Level: level, Source: '/admin → Settings → 測試警報' },
+  });
+  return c.json(result);
+});
+
+/** Cryptographically random project token (48 hex chars, same as openssl rand -hex 24). */
+function generateProjectToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * GET /admin/generate-token
+ * Random token for the New Project dialog's generate button.
+ */
+admin.get('/admin/generate-token', (c) => {
+  return c.json({ token: generateProjectToken() });
+});
+
+/**
+ * POST /admin/projects/:projectId/rotate-token
+ * Rotate a project's token. The new value is shown exactly once (htmx
+ * fragment into the modal container) — same reveal-once model as enroll.sh.
+ */
+admin.post('/admin/projects/:projectId/rotate-token', async (c) => {
+  const db = c.env.DB;
+  const projectId = c.req.param('projectId');
+
+  const project = await db
+    .prepare('SELECT id FROM projects WHERE id = ?')
+    .bind(projectId)
+    .first<Project>();
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  const token = generateProjectToken();
+  await db.prepare('UPDATE projects SET token = ? WHERE id = ?').bind(token, projectId).run();
+
+  return c.html(html`
+<div x-data="{ open: true }" x-show="open" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+  <div class="modal-dialog" @click.outside="closeModal()" style="background: #242424; padding: 2rem; border-radius: 0.5rem; max-width: 560px; width: 100%;">
+    <h3>Token 已輪替 — ${projectId}</h3>
+    <p>新 token（<strong>只顯示這一次</strong>）：</p>
+    <p><code style="word-break: break-all;">${token}</code></p>
+    <p><small>舊 token 已立即失效。請：① 更新 client 專案的 env／secrets；② 同步本機 <code>docs/tokens.local.md</code>（<code>scripts/enroll.sh</code> 的清單不會自動更新）。</small></p>
+    <button type="button" class="outline secondary" @click="closeModal()">關閉</button>
+  </div>
+  <script>
+    function closeModal() {
+      const container = document.getElementById('modal-container');
+      if (container) {
+        container.innerHTML = '';
+      }
+    }
+  </script>
+</div>
+  `);
+});
+
+/** Minimal shape of a logs row (written by services/logic.ts writeLog). */
+interface LogRow {
+  check_id: string;
+  status: string;
+  latency: number | null;
+  message: string | null;
+  created_at: number;
+}
+
+/**
+ * GET /admin/logs?project=&check=&limit=
+ * Recent pulse history (logs keep 7 days via cron). Returns a <tbody> fragment
+ * for the htmx Logs tab. check_id is `${projectId}:${name}` — project filter
+ * matches the `project:` prefix with the id escaped.
+ */
+admin.get('/admin/logs', async (c) => {
+  const db = c.env.DB;
+  const project = c.req.query('project') ?? '';
+  const check = c.req.query('check') ?? '';
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 200);
+
+  let rows: LogRow[];
+  if (check) {
+    rows = (await db
+      .prepare('SELECT * FROM logs WHERE check_id = ? ORDER BY created_at DESC LIMIT ?')
+      .bind(check, limit)
+      .all<LogRow>()).results;
+  } else if (project) {
+    rows = (await db
+      .prepare("SELECT * FROM logs WHERE check_id LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?")
+      .bind(`${escapeLikePattern(project)}:%`, limit)
+      .all<LogRow>()).results;
+  } else {
+    rows = (await db
+      .prepare('SELECT * FROM logs ORDER BY created_at DESC LIMIT ?')
+      .bind(limit)
+      .all<LogRow>()).results;
+  }
+
+  return c.html(html`
+<tbody>
+  ${raw(rows.length === 0 ? html`<tr><td colspan="5" style="color:#888;">（沒有記錄——7 天保留期內無 pulse）</td></tr>` :
+    rows.map((r) => html`
+    <tr>
+      <td>${new Date(r.created_at * 1000).toLocaleString()}</td>
+      <td><code>${r.check_id}</code></td>
+      <td><span class="status-badge ${r.status === 'ok' ? 'ok' : r.status === 'dead' ? 'dead' : 'error'}">${r.status}</span></td>
+      <td>${r.latency ?? '—'}</td>
+      <td>${r.message ?? ''}</td>
+    </tr>`).join(''))}
+</tbody>
+  `);
 });
 
 /**
@@ -407,8 +545,16 @@ admin.post('/admin/projects/new-dialog', async (c) => {
       </label>
       <label>
         Token
-        <input type="text" name="token" placeholder="Generate secure token" required minlength="16" />
-        <small>At least 16 characters</small>
+        <div style="display:flex; gap:0.5rem;">
+          <input type="text" name="token" id="new-project-token" placeholder="按「產生」或自貼" required minlength="16" style="flex:1;" />
+          <button
+            type="button"
+            class="outline secondary"
+            hx-get="/admin/generate-token"
+            hx-on::after-request="document.getElementById('new-project-token').value = event.detail.xhr.responseJSON.token"
+          >🎲 產生</button>
+        </div>
+        <small>At least 16 characters（產生 = 48 hex，與 scripts/enroll.sh 同款）</small>
       </label>
       <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
         <button type="submit" class="primary">Create</button>
