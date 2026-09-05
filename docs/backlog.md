@@ -31,3 +31,12 @@
   整組取代語意需在文件強調「漏列即刪」的危險邊。
 - **驗收**：client 能以 API 完整表達「這個 project 有哪些 checks、各自是否監控」，
   不再需要 D1 直攻或 admin UI。
+
+### WD-03 [P2] admin settings POST 對 JSON body 靜默存空值（2026-09-05 啟用 email 警報實測）
+
+- **實案**：`POST /admin/settings/email` 帶 `content-type: application/json` 送 JSON body →
+  回 200「saved!」但**存入三欄全空**（handler 走表單解析，JSON 被 ignores；測試信因此
+  報 not configured）。操作者改 form-urlencoded 才真的存入。
+- **修法建議**：`content-type: application/json` 時要嘛解析 JSON、要嘛 415 fail-loud——
+  「成功回應 + 靜默空值」是最壞組合（文件面的 curl 範例也應標明 form 格式與
+  `X-Requested-With: XMLHttpRequest` 必帶——本輪實測 403→補 header 才過）。
