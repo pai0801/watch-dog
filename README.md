@@ -42,6 +42,38 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
 
 驗證（公開免認證）：`curl -s https://watch-dog.helperp.workers.dev/api/status/my-service | jq`
 
+### 4. （操作者可選）Email 警報啟用——經 email-king gateway 雙通道
+
+> 2026-09-05 全程實測通過的 runbook。原則見 email-king README「跨服務憑證交接」
+> （持有 VPS SSH 或 watch-dog admin 的 session 即可執行,不必 Peter 本人;
+> 唯一人類步驟=收信者看信箱）。
+
+```bash
+# ① 在 email-king VPS 合併節點 mint consumer token(明文只出現一次,經管線不落終端)
+ssh <vps> 'T=$(grep -E "^API_SECRET_TOKEN=" ~/email-king/.env | cut -d= -f2-) && \
+  curl -s -X POST http://localhost:8000/api/v1/consumers \
+  -H "Authorization: Bearer admin:$T" -H "content-type: application/json" \
+  -d "{\"name\": \"watch-dog\"}"' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+
+# ② 存設定到 watch-dog——[MUST] form-encoded + X-Requested-With
+#    (WD-03 實測教訓:JSON body 會回 200 卻靜默存空值)
+A=$(grep '^ADMIN_ACCOUNT=' .dev.vars | cut -d= -f2-)
+P=$(grep '^ADMIN_PASSWORD=' .dev.vars | cut -d= -f2-)
+curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email" \
+  -u "$A:$P" -H 'X-Requested-With: XMLHttpRequest' \
+  --data-urlencode "email_gateway_url=https://ek-gw.96321478.xyz/api/v1/send" \
+  --data-urlencode "email_api_token=<①的token>" \
+  --data-urlencode "email_recipient=<收件信箱>"
+
+# ③ 測試 → {"ok":true} + 收到信即通
+curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email-test" \
+  -u "$A:$P" -H 'X-Requested-With: XMLHttpRequest'
+```
+
+啟用後,任何 check 判死/恢復 = Slack + Email 雙通道。失敗排障:`email_api_token`
+空值=② 送成 JSON(WD-03);403=漏 `X-Requested-With`;email-king 側稽核可查
+`email_logs WHERE consumer LIKE 'watch-dog%'`。
+
 ## Features
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API
