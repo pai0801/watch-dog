@@ -4,6 +4,44 @@ A serverless, passive monitoring system ("Dead Man's Switch") for distributed mi
 
 > **Production**: `https://watch-dog.helperp.workers.dev` · public status feed: [`/api/status`](https://watch-dog.helperp.workers.dev/api/status)
 
+## 客戶端接入（Client Onboarding）
+
+> 你是要被監控的服務？這一段就是全部。完整版（Python/Node 範例、可貼進你 repo 的 agent 指示塊）：[docs/client-guide.md](docs/client-guide.md)。
+
+### 1. 取得 token
+
+**向操作者索取**——操作者跑一行建立你的 project，交付三個環境變數（放進你專案的 `.env` / secrets）：
+
+```bash
+WATCHDOG_URL=https://watch-dog.helperp.workers.dev
+WATCHDOG_PROJECT=my-service        # 操作者建立時指定的 project id
+WATCHDOG_TOKEN=<操作者交付>        # 你的專案身分，[NEVER] commit 進 repo
+```
+
+> 註冊不開放自助：`PUT /api/config` 對未知 project 回 404——project 由操作者建立（防陌生人建 check 打警報進 Slack）。
+
+### 2. 定義 checks（首次設定，之後隨時可改）
+
+```bash
+curl -X PUT "https://watch-dog.helperp.workers.dev/api/config" \
+  -H "Authorization: Bearer $WATCHDOG_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"my-service","display_name":"我的服務","checks":[{"name":"main","type":"heartbeat","interval":300,"grace":60}]}'
+```
+
+### 3. 每輪工作完成時發 pulse（就這一行）
+
+```bash
+curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
+  -H "Authorization: Bearer $WATCHDOG_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"check_name":"main","status":"ok"}' --max-time 5
+```
+
+**規則一句話**：`interval + grace` 秒沒收到 pulse → 判 DEAD → Slack critical；恢復發 pulse → recovery 通知。pulse 打在「工作完成點」——進程卡死也抓得到（不只是進程死亡）。
+
+驗證（公開免認證）：`curl -s https://watch-dog.helperp.workers.dev/api/status/my-service | jq`
+
 ## Features
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API
@@ -84,7 +122,7 @@ scripts/enroll.sh my-service 我的服務
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/pulse` | POST | project token | Report heartbeat |
-| `/api/config` | PUT | project token | Register project/checks |
+| `/api/config` | PUT | project token | Update checks（project 須由操作者建立；未知 project 404） |
 | `/api/status` | GET | public | Get all statuses |
 | `/api/status/:projectId` | GET | public | Get project status |
 | `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
