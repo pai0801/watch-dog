@@ -13,7 +13,7 @@
 
 import { D1Database } from '@cloudflare/workers-types';
 import { Check, Project } from '../types';
-import { sendSlackAlert, isInSilencePeriod, getSilencePeriod } from './alert';
+import { dispatchAlert, isInSilencePeriod, getSilencePeriod } from './alert';
 
 // Claim the alert slot via CAS on last_alert_at: only the writer that flips
 // it may send, so concurrent pulses / overlapping runs yield exactly one
@@ -74,7 +74,7 @@ export async function processCheckResult(
     await writeLog();
 
     if (sendRecovery) {
-      await sendSlackAlert(db, {
+      await dispatchAlert(db, {
         checkId: check.id,
         projectName: project.display_name,
         checkName: check.display_name || check.name,
@@ -149,7 +149,7 @@ export async function processCheckResult(
     const title = newStatus === 'dead' ? 'Service DEAD' : 'Service Warning';
     const level = newStatus === 'dead' ? 'critical' : 'warning';
 
-    await sendSlackAlert(db, {
+    await dispatchAlert(db, {
       checkId: check.id,
       projectName: project.display_name,
       checkName: check.display_name || check.name,

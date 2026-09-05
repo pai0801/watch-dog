@@ -69,6 +69,15 @@ export interface SlackSendResult {
   error?: string;
 }
 
+/** Levels that also send email (outage + recovery); warnings stay Slack-only. */
+const EMAIL_LEVELS: ReadonlySet<AlertLevel> = new Set(['critical', 'recovery']);
+
+/** Result of an email-king gateway send attempt (same shape as Slack). */
+export interface EmailSendResult {
+  ok: boolean;
+  error?: string;
+}
+
 /**
  * Send an alert to Slack using the Block Kit API
  *
@@ -239,6 +248,88 @@ export async function sendSlackAlert(db: D1Database, data: SlackAlertData): Prom
     console.error('[Slack] Failed to send alert:', error);
     return { ok: false, error: `Slack request failed: ${String(error)}` };
   }
+}
+
+/**
+ * Send an alert email through the email-king gateway
+ * (~/Code/email-king docs/SEND-SPEC.md: POST {url} Bearer token,
+ * {to_email, subject, html_content, industry?, company?}).
+ *
+ * Best-effort: never throws — a gateway outage (which watch-dog itself
+ * monitors as ek-gateway) must not break the Slack alert path.
+ */
+export async function sendEmailAlert(db: D1Database, data: SlackAlertData): Promise<EmailSendResult> {
+  const settings = await getAllSettings(db);
+  const { email_gateway_url: url, email_api_token: token, email_recipient: recipient } = settings;
+
+  if (!url || !token || !recipient) {
+    return { ok: false, error: 'Email alerts not configured（/admin → Settings → Email：gateway URL＋token＋收件人）' };
+  }
+
+  const style = STYLE_MAP[data.level];
+  const subject = `${style.emoji} [watch-dog] ${data.projectName}/${data.checkName} — ${data.title}`;
+  const html = `
+    <div style="font-family: system-ui, sans-serif; max-width: 560px;">
+      <h2 style="margin: 0 0 0.5rem;">${style.emoji} Watch-Dog: ${data.title}</h2>
+      <p style="color: #555; margin: 0 0 1rem;">${new Date().toISOString()}</p>
+      <table style="border-collapse: collapse;">
+        <tr><td style="padding: 4px 12px 4px 0; color: #777;">Level</td><td><b>${data.level.toUpperCase()}</b></td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #777;">Project</td><td>${data.projectName}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #777;">Check</td><td>${data.checkName}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #777;">Message</td><td>${data.message}</td></tr>
+      </table>
+      <p style="margin-top: 1rem;"><a href="https://watch-dog.helperp.workers.dev/">打開 Watch-Dog Dashboard →</a></p>
+    </div>`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        to_email: recipient,
+        subject,
+        html_content: html,
+        // CRM attribution on the gateway's monitoring page
+        industry: '監控',
+        company: 'watch-dog',
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      let code = `HTTP ${response.status}`;
+      try {
+        const detail = await response.json() as { detail?: { code?: string; message?: string } };
+        if (detail?.detail) code = `${detail.detail.code ?? code}: ${detail.detail.message ?? ''}`;
+      } catch { /* non-JSON error body — keep the HTTP code */ }
+      console.error('[Email] gateway error:', code);
+      return { ok: false, error: `email-king gateway: ${code}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error('[Email] failed:', error);
+    return { ok: false, error: `email request failed: ${String(error)}` };
+  }
+}
+
+/**
+ * Fan an alert out to every configured channel: Slack always; email for
+ * outage-level alerts (critical/recovery) when the email-king gateway is
+ * configured. Channels are independent — one failing never blocks the other.
+ */
+export async function dispatchAlert(db: D1Database, data: SlackAlertData): Promise<void> {
+  const [slack, email] = await Promise.all([
+    sendSlackAlert(db, data),
+    EMAIL_LEVELS.has(data.level) ? sendEmailAlert(db, data) : Promise.resolve({ ok: true } satisfies EmailSendResult),
+  ]);
+  // Errors already console.error'd inside the senders; results are for
+  // callers that want them (tests / future telemetry). Log a summary line
+  // for the email path so cron traces show both channels.
+  if (!slack.ok) console.error('[dispatch] Slack channel failed:', slack.error);
+  if (!email.ok) console.error('[dispatch] Email channel failed:', email.error);
 }
 
 /**

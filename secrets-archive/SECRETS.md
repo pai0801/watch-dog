@@ -12,6 +12,7 @@
 | `ADMIN_PASSWORD` | `/admin/*` Basic-Auth 密碼 | 操作者自產（建議 `openssl rand -hex 24`） | 同上 | 同上（與 ADMIN_ACCOUNT 一組） | **2026-09-05 首次設定**（同上） |
 | ~~`ADMIN_TOKEN`~~（**已移除 2026-09-05**——由上兩項成對取代） | ~~`/admin` Basic-Auth 單一密碼（username 忽略）~~ | ~~自產~~ | ~~`src/middleware/adminAuth.ts` 等~~ | worker secret 已刪除；歷史部署流程見 FIX-LOG 2026-09-05 條目 | 已移除 |
 | ~~`SLACK_API_TOKEN`~~（**已移除 2026-09-04**，TODO-REVIEW #7） | ~~Slack 警報發送 token 的 env fallback~~ | Slack workspace app（Bot User OAuth Token） | ~~`src/lib/bindings.ts`（trySlackApiToken）、`src/services/settings.ts`（getEnvWithFallback）~~——移除時系統**從未部署**，零部署受影響 | 現行真相源 = **D1 `settings` 表**（`/admin` 設定，`getAllSettings` 讀取），env 途徑已不存在 | env fallback 已於首次部署前移除（DB settings 值由操作者在 /admin 管理） |
+| `email_api_token`（**非 Worker secret**——D1 settings，2026-09-05 起） | email 警報（critical/recovery）經 email-king gateway 寄信的 consumer token | email-king 操作者經 SSH mint（`POST /api/v1/consumers`，明文僅出現一次） | D1 `settings` 表（`/admin` → Settings → Email，遮罩顯示留空保留；`sendEmailAlert` 讀取） | 換 token 於 /admin 填新值即覆蓋；email-king 側輪替需 re-mint。gateway URL 與收件人同段設定 | 操作者於 /admin 填入（2026-09-05 功能上線） |
 
 ## Deploy-time shell 憑證（非 worker runtime binding，不入 `[secrets].worker`）
 

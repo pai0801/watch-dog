@@ -7,8 +7,8 @@ import { html, raw } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
 import { escapeLikePattern, isValidProjectId } from '../lib/validate';
-import { getAllSettings, updateSlackSettings, updateSetting } from '../services/settings';
-import { sendSlackAlert, type AlertLevel } from '../services/alert';
+import { getAllSettings, updateEmailSettings, updateSlackSettings, updateSetting } from '../services/settings';
+import { sendEmailAlert, sendSlackAlert, type AlertLevel } from '../services/alert';
 import { setMaintenance } from '../services/maintenance';
 import { Layout } from '../views/layout';
 import { AdminPage, type AdminProject } from '../views/adminViews';
@@ -270,6 +270,65 @@ admin.get('/admin/logs', async (c) => {
     </tr>`).join(''))}
 </tbody>
   `);
+});
+
+/**
+ * POST /admin/settings/email
+ * Save email-king gateway settings. Empty api_token field keeps the stored
+ * token (same masked contract as the Slack form).
+ */
+admin.post('/admin/settings/email', async (c) => {
+  const db = c.env.DB;
+
+  try {
+    const body = await c.req.parseBody();
+    const success = await updateEmailSettings(db, {
+      email_gateway_url: (body.email_gateway_url as string) || '',
+      email_api_token: (body.email_api_token as string) || '',
+      email_recipient: (body.email_recipient as string) || '',
+    });
+
+    if (!success) {
+      return c.html(html`
+        <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
+          Failed to save email settings. Please try again.
+        </div>
+      `);
+    }
+
+    return c.html(html`
+      <div style="padding: 1rem; background: #2ecc71; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
+        Email settings saved!（critical／recovery 警報將經 email-king gateway 寄出）
+      </div>
+      <script>setTimeout(() => htmx.ajax('GET', '/admin', {target: 'body', swap: 'outerHTML'}), 500);</script>
+    `);
+  } catch (error) {
+    console.error('Email settings save error:', error);
+    return c.html(html`
+      <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
+        Error saving email settings. Please try again.
+      </div>
+    `);
+  }
+});
+
+/**
+ * POST /admin/settings/email-test
+ * Fire a test email through the configured email-king gateway and report
+ * delivery success/failure (mirrors slack-test).
+ */
+admin.post('/admin/settings/email-test', async (c) => {
+  const db = c.env.DB;
+  const result = await sendEmailAlert(db, {
+    checkId: 'admin:test-email',
+    projectName: 'Watch-Dog Admin',
+    checkName: 'Test Email',
+    level: 'critical',
+    title: '測試警報（email）',
+    message: '由管理界面發出的測試郵件——驗證 email-king gateway 路由，可安全忽略。',
+    metadata: { Source: '/admin → Settings → Test Email' },
+  });
+  return c.json(result);
 });
 
 /**

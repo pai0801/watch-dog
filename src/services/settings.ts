@@ -48,9 +48,24 @@ export interface SlackSettings {
 }
 
 /**
+ * Email alert settings — delivered through the email-king gateway
+ * (POST {url} with Bearer token; see docs/SEND-SPEC.md in ~/Code/email-king).
+ * Email fires on critical (service DEAD) and recovery only — warnings stay
+ * Slack-only so the inbox is reserved for real outages.
+ */
+export interface EmailSettings {
+  /** Gateway send endpoint, e.g. https://ek-gw.96321478.xyz/api/v1/send */
+  email_gateway_url: string;
+  /** email-king consumer token (masked in UI; empty field = keep stored) */
+  email_api_token: string;
+  /** Alerts inbox */
+  email_recipient: string;
+}
+
+/**
  * All application settings
  */
-export interface AllSettings extends SlackSettings {
+export interface AllSettings extends SlackSettings, EmailSettings {
   /** Cooldown period between duplicate alerts (seconds) */
   silence_period_seconds: number;
 }
@@ -62,6 +77,9 @@ const DB_KEY_TO_INTERFACE_KEY: Record<string, keyof AllSettings> = {
   'slack_channel_success': 'channel_success',
   'slack_channel_warning': 'channel_warning',
   'slack_channel_info': 'channel_info',
+  'email_gateway_url': 'email_gateway_url',
+  'email_api_token': 'email_api_token',
+  'email_recipient': 'email_recipient',
   'silence_period_seconds': 'silence_period_seconds',
 };
 
@@ -86,6 +104,9 @@ export async function getAllSettings(db: D1Database): Promise<AllSettings> {
     channel_success: '',
     channel_warning: '',
     channel_info: '',
+    email_gateway_url: '',
+    email_api_token: '',
+    email_recipient: '',
     silence_period_seconds: 3600,
   };
 
@@ -144,6 +165,31 @@ export async function updateSlackSettings(db: D1Database, settings: SlackSetting
       ['slack_channel_success', settings.channel_success || ''],
       ['slack_channel_warning', settings.channel_warning || ''],
       ['slack_channel_info', settings.channel_info || ''],
+    ];
+
+    for (const [key, value] of updates) {
+      await db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = ?, updated_at = ?`)
+        .bind(key, value || '', now, value || '', now)
+        .run();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Update email alert settings (email-king gateway). Same masked-keep-empty
+ * contract as updateSlackSettings: an empty api_token keeps the stored one —
+ * the admin form never echoes it back.
+ */
+export async function updateEmailSettings(db: D1Database, settings: EmailSettings): Promise<boolean> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const updates: Array<[string, string]> = [
+      ...(settings.email_api_token ? [['email_api_token', settings.email_api_token] as [string, string]] : []),
+      ['email_gateway_url', settings.email_gateway_url || ''],
+      ['email_recipient', settings.email_recipient || ''],
     ];
 
     for (const [key, value] of updates) {

@@ -125,6 +125,43 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
       <button type="submit" class="primary">Save Settings</button>
     </form>
 
+    <h2 style="margin-top: 2rem;">Email Alerts（email-king gateway）</h2>
+    <p><small><b>critical（服務中斷）與 recovery</b> 經 email-king gateway 寄信；warning 僅 Slack（信箱留給真中斷）。Token 向操作者索取（email-king consumer token）。</small></p>
+    <form hx-post="/admin/settings/email" hx-swap="outerHTML">
+      <div class="admin-settings-grid grid">
+        <label>
+          Gateway URL
+          <input
+            type="text"
+            name="email_gateway_url"
+            value="${settings.email_gateway_url}"
+            placeholder="https://ek-gw.96321478.xyz/api/v1/send"
+          />
+        </label>
+        <label>
+          API Token
+          <input
+            type="text"
+            name="email_api_token"
+            value=""
+            autocomplete="off"
+            placeholder="${settings.email_api_token ? maskToken(settings.email_api_token) : 'email-king consumer token'}"
+          />
+          <small>${settings.email_api_token ? `留空 = 保留現有 token（${maskToken(settings.email_api_token)}）` : '尚未設定 token'}</small>
+        </label>
+        <label>
+          收件人（Alerts Inbox）
+          <input
+            type="email"
+            name="email_recipient"
+            value="${settings.email_recipient}"
+            placeholder="you@example.com"
+          />
+        </label>
+      </div>
+      <button type="submit" class="primary">Save Email Settings</button>
+    </form>
+
     <div style="margin-top: 1.5rem; border-top: 1px solid #333; padding-top: 1rem;">
       <h3>測試警報</h3>
       <p><small>送一通真實訊息到對應頻道，當場驗證 token／頻道路由（成敗顯示於右側）。</small></p>
@@ -145,6 +182,14 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
           hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('slack-test-result').textContent = r.ok ? '✓ 已送達（success 頻道）' : '✗ ' + (r.error || 'failed')"
         >✅ Test Recovery</button>
         <span id="slack-test-result" style="color: #aaa;"></span>
+      </div>
+      <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; flex-wrap: wrap;">
+        <button type="button" class="outline secondary"
+          hx-post="/admin/settings/email-test"
+          hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+          hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('email-test-result').textContent = r.ok ? '✓ 測試郵件已寄出（收件匣查看）' : '✗ ' + (r.error || 'failed')"
+        >📧 Test Email</button>
+        <span id="email-test-result" style="color: #aaa;"></span>
       </div>
     </div>
   </div>

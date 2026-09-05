@@ -13,8 +13,10 @@ import {
   resetDb,
   seedCheck,
   seedProject,
+  setEmailSettings,
   setSetting,
   setSlackSettings,
+  TEST_EMAIL,
   TEST_SLACK,
 } from './utils';
 
@@ -236,6 +238,65 @@ describe('public dashboard', () => {
     expect(html).toContain('Test Project'); // display name is rendered
     // The public dashboard must not expose maintenance controls anymore
     expect(html).not.toContain('hx-post="/api/maintenance/');
+  });
+});
+
+describe('admin email settings — email-king gateway (2026-09-05)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setEmailSettings();
+  });
+
+  const postForm = (url: string, body: string) =>
+    SELF.fetch(`http://localhost${url}`, {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+  it('POST /admin/settings/email saves fields; empty token keeps the stored one', async () => {
+    const res = await postForm(
+      '/admin/settings/email',
+      'email_gateway_url=https://ek-gw.example/api/v1/send&email_api_token=&email_recipient=ops@example.com',
+    );
+    expect(res.status).toBe(200);
+
+    expect(await getSetting('email_gateway_url')).toBe('https://ek-gw.example/api/v1/send');
+    expect(await getSetting('email_api_token')).toBe(TEST_EMAIL.email_api_token); // empty = keep
+    expect(await getSetting('email_recipient')).toBe('ops@example.com');
+  });
+
+  it('POST /admin/settings/email-test delivers via the gateway and reports ok', async () => {
+    let posted = '';
+    network.use(http.post(TEST_EMAIL.email_gateway_url, async ({ request }) => {
+      posted = await request.text();
+      return HttpResponse.json({ status: 'sent', message_id: 'm1' });
+    }));
+
+    const res = await postForm('/admin/settings/email-test', '');
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean }>();
+    expect(body.ok).toBe(true);
+    expect(posted).toContain(TEST_EMAIL.email_recipient);
+  });
+
+  it('POST /admin/settings/email-test surfaces gateway error codes', async () => {
+    network.use(http.post(TEST_EMAIL.email_gateway_url, () =>
+      HttpResponse.json({ detail: { code: 'suppressed', message: 'recipient suppressed' } }, { status: 403 })));
+
+    const res = await postForm('/admin/settings/email-test', '');
+    const body = await res.json<{ ok: boolean; error?: string }>();
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('suppressed');
+  });
+
+  it('POST /admin/settings/email-test reports unconfigured email as ok:false', async () => {
+    await DB.prepare('DELETE FROM settings').run();
+
+    const res = await postForm('/admin/settings/email-test', '');
+    const body = await res.json<{ ok: boolean; error?: string }>();
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('not configured');
   });
 });
 

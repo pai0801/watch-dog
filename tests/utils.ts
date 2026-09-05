@@ -62,6 +62,20 @@ export async function setSlackSettings(): Promise<void> {
   }
 }
 
+/** email-king gateway fixture (arbitrary host — msw intercepts by URL). */
+export const TEST_EMAIL = {
+  email_gateway_url: 'https://ek-gw.test.local/api/v1/send',
+  email_api_token: 'ek-test-send-token-1234',
+  email_recipient: 'ops@example.com',
+};
+
+/** Configure email alert settings so email delivery is actually attempted. */
+export async function setEmailSettings(): Promise<void> {
+  await setSetting('email_gateway_url', TEST_EMAIL.email_gateway_url);
+  await setSetting('email_api_token', TEST_EMAIL.email_api_token);
+  await setSetting('email_recipient', TEST_EMAIL.email_recipient);
+}
+
 export async function setSetting(key: string, value: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   await DB.prepare(

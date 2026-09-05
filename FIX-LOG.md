@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] 雙通道警報——服務中斷（critical/recovery）經 email-king gateway 另寄 email
+
+**目標**：服務中斷不只 Slack——critical（DEAD）與 recovery 另寄 email，經操作者的 email-king gateway（`~/Code/email-king`，`POST /api/v1/send`、Bearer consumer token）。
+**原因**：操作者指示；Slack 訊息易被淹沒，真中斷值得信箱層級的觸達。warning 維持 Slack-only——信箱留給真中斷，避免稀釋。
+**預期結果**：Settings 擴充 EmailSettings（gateway URL＋consumer token＋收件人，D1 settings、遮罩留空保留——同 Slack 模型）；`sendEmailAlert`（ek-gw API 合約：`{to_email,subject,html_content,industry,company}` CRM 歸因、`AbortSignal 10s`、`{detail:{code}}` 錯誤解包、`{ok,error}` 回報）；`dispatchAlert` 扇出（Slack 恒發＋critical/recovery 並行 email，`Promise.all` 通道互相獨立——**gateway 掛掉（正是 watch-dog 監控的 ek-gateway）不擋 Slack**）；logic.ts 兩呼叫點換 `dispatchAlert`；`/admin/settings/email` 存檔＋`/admin/settings/email-test` 測試鈕（當場 ✓/✗ 含 ek 錯誤碼）。文件：usage Settings 段＋SECRETS.md email_api_token 列（D1 settings 模型，非 Worker secret）。
+**範圍**：`src/services/{settings,alert,logic}.ts`、`src/routes/admin.ts`、`src/views/adminViews.ts`、`tests/{utils,admin,logic}.test.ts`（+7：設定存取×4、dispatch 行為×3）、`docs/usage.md`、`secrets-archive/SECRETS.md`。無 schema、無 Worker secret 變動。
+**驗證**：app pool **83/83** ✓（76+7）guards 21/21 ✓；dispatch 行為鎖定——critical 雙通道（email 帶收件人＋主題）、warning 僅 Slack、gateway 500 不擋 Slack 且不 throw。**操作者後續**：經 SSH mint email-king consumer token → `/admin` → Settings → Email 填三欄 → 📧 Test Email 按鈕驗證（未設定時按鈕回 `not configured` 提示）。
+
 ### [2026-09-05] WD-01/WD-02 清償——拔除 self 模板 check（誤報產生器）＋ config API 補齊 check 管理面（replace-set＋monitor）
 
 **目標**：清償 email-king 接入實測暴露的兩個 footgun（docs/backlog.md）：WD-01 每個新 project 自動附加 `self` check——client 永不脈搏它 → 每接入一個服務就預約一條 DEAD 誤報（ek-dev/ek-gateway 實案）；WD-02 客戶端 API 無法完整表達 checks 生命週期（config 只 upsert 無刪除、monitor 只在 admin UI），迫使操作者 D1 直攻。

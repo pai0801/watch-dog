@@ -11,12 +11,14 @@ import { processCheckResult, findDeadChecks } from '../src/services/logic';
 import type { Check } from '../src/types';
 import {
   DB,
+  TEST_EMAIL,
   TEST_SLACK,
   getCheck,
   countLogs,
   resetDb,
   seedCheck,
   seedProject,
+  setEmailSettings,
   setSlackSettings,
 } from './utils';
 
@@ -291,5 +293,61 @@ describe('findDeadChecks', () => {
 
     const dead = await findDeadChecks(DB, now);
     expect(dead.map((c: Check) => c.id)).toEqual([`${project.id}:stale`]);
+  });
+});
+
+describe('dispatchAlert — dual channel (Slack + email-king gateway)', () => {
+  let ekCalls: string[];
+  let slackBodies: string[];
+
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+    await setEmailSettings();
+    ekCalls = [];
+    slackBodies = [];
+    network.use(
+      http.post('https://slack.com/api/chat.postMessage', async ({ request }) => {
+        slackBodies.push(await request.text());
+        return HttpResponse.json({ ok: true });
+      }),
+      http.post(TEST_EMAIL.email_gateway_url, async ({ request }) => {
+        ekCalls.push(await request.text());
+        return HttpResponse.json({ status: 'sent', message_id: 'm1' });
+      }),
+    );
+  });
+
+  it('critical (dead) alerts hit BOTH channels — email carries recipient + subject', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id);
+
+    await processCheckResult(DB, check, project, 'dead', 'no pulse received');
+
+    expect(slackBodies).toHaveLength(1);
+    expect(ekCalls).toHaveLength(1);
+    expect(ekCalls[0]).toContain(TEST_EMAIL.email_recipient);
+    expect(ekCalls[0]).toContain('watch-dog');
+  });
+
+  it('warning alerts stay Slack-only (inbox reserved for real outages)', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id);
+
+    await processCheckResult(DB, check, project, 'error', 'boom');
+
+    expect(slackBodies).toHaveLength(1);
+    expect(ekCalls).toHaveLength(0);
+  });
+
+  it('email gateway failure never blocks the Slack path', async () => {
+    network.use(http.post(TEST_EMAIL.email_gateway_url, () => HttpResponse.json({}, { status: 500 })));
+    const project = await seedProject();
+    const check = await seedCheck(project.id);
+
+    await processCheckResult(DB, check, project, 'dead', 'no pulse received'); // must not throw
+
+    expect(slackBodies).toHaveLength(1);
+    expect(ekCalls).toHaveLength(0);
   });
 });
