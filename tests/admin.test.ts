@@ -300,6 +300,47 @@ describe('admin email settings — email-king gateway (2026-09-05)', () => {
   });
 });
 
+describe('WD-03 — admin form endpoints reject JSON bodies (415, no silent empty save)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setEmailSettings();
+  });
+
+  const postJson = (url: string, body: unknown) =>
+    SELF.fetch(`http://localhost${url}`, {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('POST /admin/settings/email with JSON → 415 and stored settings untouched', async () => {
+    const res = await postJson('/admin/settings/email', {
+      email_gateway_url: '', email_api_token: '', email_recipient: '',
+    });
+    expect(res.status).toBe(415);
+    expect((await res.json<{ error: string }>()).error).toContain('WD-03');
+    // nothing was clobbered with empty values — the original WD-03 trap
+    expect(await getSetting('email_gateway_url')).toBe(TEST_EMAIL.email_gateway_url);
+    expect(await getSetting('email_recipient')).toBe(TEST_EMAIL.email_recipient);
+  });
+
+  it('POST /admin/settings/slack with JSON → 415', async () => {
+    const res = await postJson('/admin/settings/slack', { api_token: '', channel_critical: '' });
+    expect(res.status).toBe(415);
+  });
+
+  it('POST /admin/checks/:id/toggle with JSON → 415 (no silent monitor=0)', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    await seedCheck('svc', { id: 'svc:health', name: 'health', monitor: 1 });
+
+    const res = await postJson('/admin/checks/svc:health/toggle', { monitor: 0 });
+    expect(res.status).toBe(415);
+
+    const row = await DB.prepare('SELECT monitor FROM checks WHERE id = ?').bind('svc:health').first<{ monitor: number }>();
+    expect(row?.monitor).toBe(1); // untouched — a JSON body must never silently pause monitoring
+  });
+});
+
 describe('admin feature round 2026-09-05 — slack-test / token lifecycle / logs', () => {
   beforeEach(async () => {
     await resetDb();

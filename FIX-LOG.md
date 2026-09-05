@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] WD-03 清償——admin 表單端點對 JSON body 415 fail-loud（拔掉「200＋靜默存空值」地雷）
+
+**目標**：`POST /admin/settings/email`（及所有 parseBody 端點）收到 `content-type: application/json` 時不再「回 200 saved! 卻存入空值」——改為 **415 fail-loud**。
+**原因**：操作者啟用 email 警報實測踩雷（WD-03）：JSON body 被 `parseBody()` 靜默忽略、三欄存空、測試信報 not configured，需自行排查改 form-urlencoded 才通。「成功回應＋靜默空值」是最壞組合；同型地雷還有 `checks/toggle`（JSON → monitor 靜默設 0＝悄悄暫停監控）。
+**預期結果**：`rejectJsonBody` middleware（Content-Type 含 application/json → 415＋指路 WD-03 訊息）套用於六個表單端點——settings/slack、slack-test、settings/email、checks/toggle、checks/:id（編輯）、projects/new；maintenance 端點本就刻意雙格式（form→JSON fallback）不動；email-test 不讀 body 不需 guard。文件：README runbook ② 註記與排障段更新（415 語義）、接入段修正 WD-01 後仍殘留的「含 self check」字樣；backlog 劃記。
+**範圍**：`src/routes/admin.ts`（middleware＋六路由）、`tests/admin.test.ts`（+3：email JSON→415 且**設定不被清空**、slack JSON→415、toggle JSON→415 且 monitor 不動）、`README.md`、`docs/backlog.md`。
+**驗證**：app pool **86/86** ✓（83+3）guards 21/21 ✓；部署後線上——JSON body → 415、form-encoded → 200、既有 email 設定原封不動。
+
 ### [2026-09-05] 雙通道警報——服務中斷（critical/recovery）經 email-king gateway 另寄 email
 
 **目標**：服務中斷不只 Slack——critical（DEAD）與 recovery 另寄 email，經操作者的 email-king gateway（`~/Code/email-king`，`POST /api/v1/send`、Bearer consumer token）。

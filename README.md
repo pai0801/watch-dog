@@ -56,7 +56,7 @@ ssh <vps> 'T=$(grep -E "^API_SECRET_TOKEN=" ~/email-king/.env | cut -d= -f2-) &&
   -d "{\"name\": \"watch-dog\"}"' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
 
 # ② 存設定到 watch-dog——[MUST] form-encoded + X-Requested-With
-#    (WD-03 實測教訓:JSON body 會回 200 卻靜默存空值)
+#    (WD-03 已修:JSON body 現在回 415 fail-loud,不再靜默存空值)
 A=$(grep '^ADMIN_ACCOUNT=' .dev.vars | cut -d= -f2-)
 P=$(grep '^ADMIN_PASSWORD=' .dev.vars | cut -d= -f2-)
 curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email" \
@@ -70,8 +70,8 @@ curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email-test" \
   -u "$A:$P" -H 'X-Requested-With: XMLHttpRequest'
 ```
 
-啟用後,任何 check 判死/恢復 = Slack + Email 雙通道。失敗排障:`email_api_token`
-空值=② 送成 JSON(WD-03);403=漏 `X-Requested-With`;email-king 側稽核可查
+啟用後,任何 check 判死/恢復 = Slack + Email 雙通道。失敗排障:415=② 送成 JSON
+(改 form-encoded,WD-03 guard);403=漏 `X-Requested-With`;email-king 側稽核可查
 `email_logs WHERE consumer LIKE 'watch-dog%'`。
 
 ## Features
@@ -148,7 +148,7 @@ submitted empty.
 scripts/enroll.sh my-service 我的服務
 ```
 
-自動生 token、建 project（含 `self` check）、印出 client 專案要貼的三行 env（`WATCHDOG_URL` / `WATCHDOG_PROJECT` / `WATCHDOG_TOKEN`），並記到 `docs/tokens.local.md`——**同 `.env` 模型**：本地明文（gitignored）＋自動 seal 加密進 `secrets-archive/env.7z`（committed）。token 值不進 committed 明文檔（pre-commit 值級掃描會擋，且 2026-02-02 曾因 docs 內文明 token 付出輪替代價）。
+自動生 token、建 project（**不附任何模板 check**——WD-01：自動 `self` check 等於預約 DEAD 誤報；checks 由 client 的 `PUT /api/config` 宣告）、印出 client 專案要貼的三行 env（`WATCHDOG_URL` / `WATCHDOG_PROJECT` / `WATCHDOG_TOKEN`），並記到 `docs/tokens.local.md`——**同 `.env` 模型**：本地明文（gitignored）＋自動 seal 加密進 `secrets-archive/env.7z`（committed）。token 值不進 committed 明文檔（pre-commit 值級掃描會擋，且 2026-02-02 曾因 docs 內文明 token 付出輪替代價）。
 
 ## API Endpoints
 

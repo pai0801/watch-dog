@@ -2,7 +2,7 @@
 // Admin dashboard routes. Every route here sits behind the Basic-Auth gate
 // (see middleware/adminAuth.ts) — the token-auth public API lives in api.ts.
 
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { html, raw } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
@@ -18,6 +18,24 @@ const admin = new Hono<{ Bindings: AppBindings }>();
 
 // All admin routes require Basic Auth (password = ADMIN_TOKEN secret).
 admin.use('*', adminAuth);
+
+/**
+ * WD-03 (docs/backlog.md): these endpoints speak htmx form-encoded.
+ * parseBody() silently ignores a JSON body and "saves" empty values with a
+ * 200 — the worst combination. Fail loud with 415 instead.
+ */
+const rejectJsonBody: MiddlewareHandler<{ Bindings: AppBindings }> = async (c, next) => {
+  if ((c.req.header('Content-Type') ?? '').includes('application/json')) {
+    return c.json(
+      {
+        error:
+          'Admin endpoints accept form-encoded bodies only (application/x-www-form-urlencoded + X-Requested-With). A JSON body would silently save empty values — see docs/backlog.md WD-03.',
+      },
+      415,
+    );
+  }
+  await next();
+};
 
 /**
  * GET /admin
@@ -75,7 +93,7 @@ admin.get('/admin', async (c) => {
  * POST /admin/settings/slack
  * Save Slack settings. An empty api_token field keeps the stored token.
  */
-admin.post('/admin/settings/slack', async (c) => {
+admin.post('/admin/settings/slack', rejectJsonBody, async (c) => {
   const db = c.env.DB;
 
   try {
@@ -141,7 +159,7 @@ admin.post('/admin/settings/slack', async (c) => {
  * report delivery success/failure — closing the "unverified until a real
  * incident" gap. Level must be one the router actually maps to a channel.
  */
-admin.post('/admin/settings/slack-test', async (c) => {
+admin.post('/admin/settings/slack-test', rejectJsonBody, async (c) => {
   const db = c.env.DB;
   const body = await c.req.parseBody();
   const level = body.level as string;
@@ -277,7 +295,7 @@ admin.get('/admin/logs', async (c) => {
  * Save email-king gateway settings. Empty api_token field keeps the stored
  * token (same masked contract as the Slack form).
  */
-admin.post('/admin/settings/email', async (c) => {
+admin.post('/admin/settings/email', rejectJsonBody, async (c) => {
   const db = c.env.DB;
 
   try {
@@ -438,7 +456,7 @@ admin.delete('/admin/checks/:checkId', async (c) => {
  * POST /admin/checks/:checkId/toggle
  * Toggle monitor status for a check
  */
-admin.post('/admin/checks/:checkId/toggle', async (c) => {
+admin.post('/admin/checks/:checkId/toggle', rejectJsonBody, async (c) => {
   const db = c.env.DB;
   const checkId = c.req.param('checkId');
 
@@ -532,7 +550,7 @@ admin.get('/admin/checks/:checkId/edit', async (c) => {
  * POST /admin/checks/:checkId
  * Update a check
  */
-admin.post('/admin/checks/:checkId', async (c) => {
+admin.post('/admin/checks/:checkId', rejectJsonBody, async (c) => {
   const db = c.env.DB;
   const checkId = c.req.param('checkId');
 
@@ -637,7 +655,7 @@ admin.post('/admin/projects/new-dialog', async (c) => {
  * POST /admin/projects/new
  * Create a new project
  */
-admin.post('/admin/projects/new', async (c) => {
+admin.post('/admin/projects/new', rejectJsonBody, async (c) => {
   const db = c.env.DB;
   const now = Math.floor(Date.now() / 1000);
 

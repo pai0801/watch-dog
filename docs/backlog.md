@@ -32,7 +32,7 @@
 - **驗收**：client 能以 API 完整表達「這個 project 有哪些 checks、各自是否監控」，
   不再需要 D1 直攻或 admin UI。
 
-### WD-03 [P2] admin settings POST 對 JSON body 靜默存空值（2026-09-05 啟用 email 警報實測）
+### WD-03 [P2] ✅ 修畢 2026-09-05（JSON → 415 fail-loud，六個表單端點全上 guard；設定不再被清空）—— admin settings POST 對 JSON body 靜默存空值（2026-09-05 啟用 email 警報實測）
 
 - **實案**：`POST /admin/settings/email` 帶 `content-type: application/json` 送 JSON body →
   回 200「saved!」但**存入三欄全空**（handler 走表單解析，JSON 被 ignores；測試信因此
