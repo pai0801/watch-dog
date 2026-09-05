@@ -4,7 +4,7 @@
 
 ## 2026-09-05 接入 email-king 實測暴露（ek-dev / ek-gateway 兩 project）
 
-### WD-01 [P1] enroll.sh 不應為每個 client project 建立 `self` check
+### WD-01 [P1] ✅ 修畢 2026-09-05（不再附 self 模板）—— enroll.sh 不應為每個 client project 建立 `self` check
 
 - **實案**：接入 ek-dev／ek-gateway 時，`enroll.sh`（經 `/admin/projects/new`）為每個新
   project 自動附加 `self`（Self Health）check——但 client 只會脈搏自己的 checks
@@ -18,7 +18,7 @@
 - **清理**：既有 project 的殘留 `self` check 需一次性清理（手動 D1 或小腳本）。
 - **驗收**：新接入一個 project（enroll → config PUT → pulse）全流程零 DEAD 誤報。
 
-### WD-02 [P2] 客戶端 API 缺 check 管理面（config 無刪除語意、monitor 不在 API 上）
+### WD-02 [P2] ✅ 修畢 2026-09-05（雙方向皆上：`checks_replace` 整組取代＋`monitor` 入 config API）—— 客戶端 API 缺 check 管理面（config 無刪除語意、monitor 不在 API 上）
 
 - **實案**：同日，WD-01 的 `self` check 無法經 API 移除——`PUT /api/config` 只 upsert
   （payload 未列出的 check 原樣保留），`monitor`（暫停監控、照收 pulse）僅 admin UI

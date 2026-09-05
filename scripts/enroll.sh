@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # enroll.sh — 一行接入新服務（操作者專用的「簡單控管」）。
-# 做：openssl 生 token → admin API 建 project（含預設 self check）→ 印出 client 要貼的 env
+# 做：openssl 生 token → admin API 建 project（WD-01：不附任何模板 check——checks 由 client 的 config PUT 宣告）→ 印出 client 要貼的 env
 #     → 記到 docs/tokens.local.md（gitignored，本地 token 清單——值 [NEVER] 進 committed 檔，
 #     見 2026-02-02 docs/plans 洩漏事件與 pre-commit §1b 值級掃描）。
 # 用法：scripts/enroll.sh <project-id> [display-name]

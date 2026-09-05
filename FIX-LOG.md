@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-05] WD-01/WD-02 清償——拔除 self 模板 check（誤報產生器）＋ config API 補齊 check 管理面（replace-set＋monitor）
+
+**目標**：清償 email-king 接入實測暴露的兩個 footgun（docs/backlog.md）：WD-01 每個新 project 自動附加 `self` check——client 永不脈搏它 → 每接入一個服務就預約一條 DEAD 誤報（ek-dev/ek-gateway 實案）；WD-02 客戶端 API 無法完整表達 checks 生命週期（config 只 upsert 無刪除、monitor 只在 admin UI），迫使操作者 D1 直攻。
+**原因**：WD-01 是活性誤報產生器（P1）；WD-02 違反「client 的 checks 清單即真相」的宣告式模型——backlog 修法建議雙方向擇一或並行，本輪並行落地。
+**預期結果**：`POST /admin/projects/new` 不再建任何模板 check（project 的 checks 完全由 client `PUT /api/config` 宣告）；config PUT 新增——①頂層 `checks_replace: true`：該 project 未列於 payload 的 check（含 logs）被刪，回應帶 `checks_deleted`（預設 false 純 upsert 不變，避免破壞 partial-PUT 既有 client）；②check 條目 `monitor: 0|1`：直接在 API 設定監控開關（省略 = 保留現值）。§B guard 相容設計：monitor 走兩條靜態語句（非動態欄位清單）、replace 走逐列靜態刪除（非動態 IN 清單）。文件同步（client-guide 漏列即刪警告、api.md、usage、README features）。backlog 劃記。
+**範圍**：`src/routes/{api,admin}.ts`、`src/types.ts`、`tests/{api,admin}.test.ts`（WD-01 斷言翻轉＋WD-02 +3）、`scripts/enroll.sh`（註解）、`docs/{client-guide,api,usage,backlog}.md`、`README.md`。無 schema、無 secret 變動。
+**驗證**：app pool **76/76** ✓（+3）guards 21/21 ✓；部署 `65b4eed9` 後線上驗收——WD-01：新專案 checks=0（**首驗曾見殘留 self：部署後秒打 enroll 撞上舊版本傳播窗，8 秒後重驗歸零**——部署→線上驗證要留傳播間隔）；WD-02：a+b 註冊 → replace [a] 後 `checks_deleted` 如實（含殘留 self 共 2）、`monitor=0` 生效、跨 project 無波及；演示專案清除＋registry 同步 re-seal ✓。
+
 ### [2026-09-05] /admin 帳密成對驗證——ADMIN_ACCOUNT＋ADMIN_PASSWORD 取代單一 ADMIN_TOKEN
 
 **目標**：把 admin 登入從「username 任意＋密碼=ADMIN_TOKEN」升級為操作者指定的帳密成對模型（`.env` 的 `ADMIN_ACCOUNT`/`ADMIN_PASSWORD`）。

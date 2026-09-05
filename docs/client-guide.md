@@ -50,7 +50,9 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
 | `grace` | 寬限期（秒） | 60 | **clamp 0–60** |
 | `threshold` | 連續失敗幾次才警報 | 1 | **固定 1**（clamp 1–1——目前任何值都等效 1） |
 | `cooldown` | 同一 check 兩次警報的最小間隔（秒）；`>0` 時覆蓋全局靜默期 | 900 | **clamp 0–900**（0 = 用全局靜默期） |
-| `monitor` | admin UI 可勾選暫停某個 check 的監控（不勾 = 不警報但照收 pulse） | 1 | — |
+| `monitor` | 1 = 監控（預設）、0 = 照收 pulse 但不警報——可在 config API 直接設，省略 = 保留現值 | 1 | 0 或 1 |
+
+**整組取代語意（`checks_replace: true`）**：config payload 加這個頂層旗標時，**未列在 `checks` 裡的該 project 既有 check（含其 logs）會被刪除**——「client 的 checks 清單即真相」的宣告式模型。⚠️ **漏列即刪**：partial 清單 + replace = 清掉沒寫的，送出前確認清單是完整的。回應的 `checks_deleted` 會告訴你刪了幾個。預設（不加旗標）仍是純 upsert——未列出的保留。
 
 > ⚠️ 兩個容易踩的行為：(1) config 裡**無效的 check 條目會被靜默跳過**——以回應的 `checks_registered` 數為準；(2) pulse 一個**未註冊**的 `check_name` 會得到 404——先 config 再 pulse。
 

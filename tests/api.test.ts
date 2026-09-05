@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import {
+  DB,
   getCheck,
   getProject,
   resetDb,
@@ -149,6 +150,59 @@ describe('PUT /api/config', () => {
     expect(check?.grace).toBe(0); // min grace
     expect(check?.threshold).toBe(1); // min threshold
     expect(check?.cooldown).toBe(900); // non-numeric → default
+  });
+});
+
+describe('PUT /api/config — WD-02 check management (replace-set + monitor)', () => {
+  const auth = { Authorization: `Bearer ${TOKEN}` };
+  const checkA = { name: 'a', display_name: 'A', type: 'heartbeat' as const, interval: 60, grace: 30 };
+  const checkB = { name: 'b', display_name: 'B', type: 'heartbeat' as const, interval: 60, grace: 30 };
+
+  beforeEach(async () => {
+    await seedProject({ id: 'mgmt', token: TOKEN, display_name: 'Mgmt' });
+    await seedProject({ id: 'other', token: 'other-token-1234567890', display_name: 'Other' });
+    await seedCheck('other', { id: 'other:keep', name: 'keep' });
+  });
+
+  it('checks_replace: absent checks and their logs are removed, scoped to this project', async () => {
+    await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [checkA, checkB] }, auth);
+    await DB.prepare("INSERT INTO logs (check_id, status, created_at) VALUES ('mgmt:b', 'ok', 1)").run();
+
+    const res = await put(
+      '/api/config',
+      { project_id: 'mgmt', display_name: 'Mgmt', checks: [checkA], checks_replace: true },
+      auth,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ checks_deleted: number }>();
+    expect(body.checks_deleted).toBe(1);
+
+    expect(await getCheck('mgmt:a')).not.toBeNull();
+    expect(await getCheck('mgmt:b')).toBeNull(); // absent → deleted
+    const logB = await DB.prepare("SELECT COUNT(*) AS n FROM logs WHERE check_id = 'mgmt:b'").first<{ n: number }>();
+    expect(logB?.n).toBe(0); // its logs went with it
+    expect(await getCheck('other:keep')).not.toBeNull(); // no cross-project bleed
+  });
+
+  it('without checks_replace: absent checks are kept (upsert-only default unchanged)', async () => {
+    await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [checkA, checkB] }, auth);
+
+    const res = await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [checkA] }, auth);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ checks_deleted: number }>();
+    expect(body.checks_deleted).toBe(0);
+    expect(await getCheck('mgmt:b')).not.toBeNull();
+  });
+
+  it('monitor field toggles monitoring via API; omitting it keeps the stored value', async () => {
+    await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [{ ...checkA, monitor: 0 }] }, auth);
+    expect((await getCheck('mgmt:a'))?.monitor).toBe(0);
+
+    await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [checkA] }, auth);
+    expect((await getCheck('mgmt:a'))?.monitor).toBe(0); // omitted → kept
+
+    await put('/api/config', { project_id: 'mgmt', display_name: 'Mgmt', checks: [{ ...checkA, monitor: 1 }] }, auth);
+    expect((await getCheck('mgmt:a'))?.monitor).toBe(1);
   });
 });
 

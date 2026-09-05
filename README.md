@@ -46,10 +46,10 @@ curl -X POST "https://watch-dog.helperp.workers.dev/api/pulse" \
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API
 - **Smart Alerting**: Configurable thresholds and cooldowns prevent false alarms
+- **Declarative Check Lifecycle**: clients own their full check set via `PUT /api/config` — upsert, replace-set (`checks_replace`) and per-check `monitor` toggle, no admin UI needed
 - **Slack Integration**: Rich Block Kit alerts with severity-based channels
 - **Maintenance Mode**: Suppress alerts during scheduled maintenance windows
-- **Admin Dashboard**: Web UI for managing projects, checks, and settings
-- **Self-Monitoring**: Built-in health check for the monitoring system itself
+- **Admin Dashboard**: Web UI for managing projects, checks, settings, pulse logs and token lifecycle
 
 ## Quick Start
 

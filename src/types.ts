@@ -153,6 +153,9 @@ export interface CheckConfig {
   threshold?: number;
   /** Alert cooldown in seconds (default: 900) */
   cooldown?: number;
+  /** Monitoring toggle: 1 = alert (default), 0 = accept pulses but never
+   *  alert. Optional — omit to keep the stored value on update. */
+  monitor?: 0 | 1;
 }
 
 /**
@@ -163,4 +166,7 @@ export interface CheckConfig {
 export interface ConfigPayload {
   /** Array of check configurations */
   checks: CheckConfig[];
+  /** Replace-set semantics (WD-02): when true, this project's checks NOT
+   *  listed in `checks` — and their logs — are deleted. 漏列即刪. */
+  checks_replace?: boolean;
 }

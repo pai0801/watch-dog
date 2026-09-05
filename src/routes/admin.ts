@@ -635,7 +635,10 @@ admin.post('/admin/projects/new', async (c) => {
       `);
     }
 
-    // Create the project
+    // Create the project — and nothing else (WD-01): the old code attached
+    // a `self` heartbeat check that clients never pulse, scheduling a DEAD
+    // false alarm for every newly enrolled service. A project's checks are
+    // exactly what its client declares via PUT /api/config.
     await db.prepare(`
       INSERT INTO projects (id, token, display_name, maintenance_until, created_at)
       VALUES (?, ?, ?, 0, ?)
@@ -644,27 +647,6 @@ admin.post('/admin/projects/new', async (c) => {
       token,
       display_name,
       now
-    ).run();
-
-    // Create a default self-check for the project
-    const checkId = `${project_id}:self`;
-    await db.prepare(`
-      INSERT INTO checks (
-        id, project_id, name, display_name, type,
-        interval, grace, threshold, cooldown,
-        last_seen, status, failure_count, last_alert_at, last_message
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', 0, 0, NULL)
-    `).bind(
-      checkId,
-      project_id,
-      'self',
-      'Self Health',
-      'heartbeat',
-      300,
-      60,
-      1,
-      900
     ).run();
 
     // Redirect to admin page

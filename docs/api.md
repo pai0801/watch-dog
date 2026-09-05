@@ -119,6 +119,13 @@ Content-Type: application/json
 | grace | number | 60 | clamped 0–60 | Grace period (seconds) |
 | threshold | number | 1 | clamped 1–1 (fixed at 1) | Failures before alert |
 | cooldown | number | 900 | clamped 0–900 | Alert cooldown (seconds); 0 = use global silence |
+| monitor | 0 \| 1 | 1 | 0 or 1 | 0 = accept pulses but never alert; omit to keep the stored value |
+
+**Top-level payload fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| checks_replace | boolean | Replace-set semantics: this project's checks NOT listed in `checks` — and their logs — are deleted. **漏列即刪.** Default `false` (pure upsert). Scoped to this project only. |
 
 > Note: `threshold` is currently pinned to 1 by the server-side clamp — sending `3` behaves as `1`.
 
@@ -128,7 +135,8 @@ Content-Type: application/json
   "success": true,
   "project_id": "my-service",
   "message": "Configuration updated",
-  "checks_registered": 1
+  "checks_registered": 1,
+  "checks_deleted": 0
 }
 ```
 

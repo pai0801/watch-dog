@@ -35,6 +35,9 @@ api.put('/api/config', async (c) => {
     }>();
 
     const { project_id, display_name, checks } = body;
+    // WD-02 replace-set: absent-from-payload checks of this project get
+    // deleted (plus their logs). Default false keeps pure upsert semantics.
+    const replaceSet = body.checks_replace === true;
 
     // Validate required fields
     if (!project_id || !display_name) {
@@ -82,6 +85,7 @@ api.put('/api/config', async (c) => {
 
     // Upsert checks
     let registered = 0;
+    const registeredNames: string[] = [];
     for (const checkConfig of checks) {
       const {
         name,
@@ -115,50 +119,117 @@ api.put('/api/config', async (c) => {
       const threshold = clampInt(rawThreshold, 1, 1);
       const cooldown = clampInt(rawCooldown, 0, 900);
 
+      // Optional monitor toggle (WD-02): 0/1 updates it; absent keeps the
+      // stored value. Two static statements instead of a dynamic column
+      // list — the §B guard requires literal SQL in prepare calls.
+      const monitor = checkConfig.monitor === 0 || checkConfig.monitor === 1 ? checkConfig.monitor : null;
+
       const checkId = `${project_id}:${name}`;
 
-      await db
-        .prepare(`
-          INSERT INTO checks (
-            id, project_id, name, display_name, type,
-            interval, grace, threshold, cooldown,
-            last_seen, status, failure_count, last_alert_at, last_message
+      if (monitor !== null) {
+        await db
+          .prepare(`
+            INSERT INTO checks (
+              id, project_id, name, display_name, type,
+              interval, grace, threshold, cooldown, monitor,
+              last_seen, status, failure_count, last_alert_at, last_message
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', 0, 0, NULL)
+            ON CONFLICT (id) DO UPDATE SET
+              display_name = ?,
+              type = ?,
+              interval = ?,
+              grace = ?,
+              threshold = ?,
+              cooldown = ?,
+              monitor = ?
+          `)
+          .bind(
+            checkId,
+            project_id,
+            name,
+            checkDisplayName || name,
+            type,
+            interval,
+            grace,
+            threshold,
+            cooldown,
+            monitor,
+            checkDisplayName || name,
+            type,
+            interval,
+            grace,
+            threshold,
+            cooldown,
+            monitor
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', 0, 0, NULL)
-          ON CONFLICT (id) DO UPDATE SET
-            display_name = ?,
-            type = ?,
-            interval = ?,
-            grace = ?,
-            threshold = ?,
-            cooldown = ?
-        `)
-        .bind(
-          checkId,
-          project_id,
-          name,
-          checkDisplayName || name,
-          type,
-          interval,
-          grace,
-          threshold,
-          cooldown,
-          checkDisplayName || name,
-          type,
-          interval,
-          grace,
-          threshold,
-          cooldown
-        )
-        .run();
+          .run();
+      } else {
+        await db
+          .prepare(`
+            INSERT INTO checks (
+              id, project_id, name, display_name, type,
+              interval, grace, threshold, cooldown,
+              last_seen, status, failure_count, last_alert_at, last_message
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', 0, 0, NULL)
+            ON CONFLICT (id) DO UPDATE SET
+              display_name = ?,
+              type = ?,
+              interval = ?,
+              grace = ?,
+              threshold = ?,
+              cooldown = ?
+          `)
+          .bind(
+            checkId,
+            project_id,
+            name,
+            checkDisplayName || name,
+            type,
+            interval,
+            grace,
+            threshold,
+            cooldown,
+            checkDisplayName || name,
+            type,
+            interval,
+            grace,
+            threshold,
+            cooldown
+          )
+          .run();
+      }
       registered++;
+      registeredNames.push(name);
+    }
+
+    // WD-02 replace-set: remove this project's checks absent from the
+    // payload (and their logs). Per-row static deletes — dynamic IN lists
+    // would violate the §B literal guard. Scoped to this project only.
+    let checksDeleted = 0;
+    if (replaceSet) {
+      const existingChecks = await db
+        .prepare('SELECT name FROM checks WHERE project_id = ?')
+        .bind(project_id)
+        .all<{ name: string }>();
+      const keep = new Set(registeredNames);
+      for (const row of existingChecks.results) {
+        if (!keep.has(row.name)) {
+          const removedId = `${project_id}:${row.name}`;
+          await db.prepare('DELETE FROM logs WHERE check_id = ?').bind(removedId).run();
+          await db.prepare('DELETE FROM checks WHERE id = ?').bind(removedId).run();
+          checksDeleted++;
+        }
+      }
     }
 
     return c.json({
       success: true,
       project_id,
-      message: 'Configuration updated',
+      message: replaceSet ? 'Configuration updated (replace-set)' : 'Configuration updated',
       checks_registered: registered,
+      checks_deleted: checksDeleted,
     });
   } catch (error) {
     console.error('Config error:', error);

@@ -179,7 +179,7 @@ describe('admin project/check management', () => {
     expect((await off.json<{ maintenance_mode: boolean }>()).maintenance_mode).toBe(false);
   });
 
-  it('POST /admin/projects/new creates a project with a default self check', async () => {
+  it('POST /admin/projects/new creates a project with NO template check (WD-01: auto self check = scheduled DEAD false alarm)', async () => {
     const res = await SELF.fetch('http://localhost/admin/projects/new', {
       method: 'POST',
       headers: { Authorization: basic(ADMIN_PASSWORD), ...XHR, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -189,8 +189,8 @@ describe('admin project/check management', () => {
 
     const project = await getProject('new-proj');
     expect(project?.display_name).toBe('New Proj');
-    const self = await DB.prepare('SELECT * FROM checks WHERE id = ?').bind('new-proj:self').first();
-    expect(self).not.toBeNull();
+    const checks = await DB.prepare('SELECT * FROM checks WHERE project_id = ?').bind('new-proj').all();
+    expect(checks.results).toHaveLength(0); // checks are the client's declaration, not a template
   });
 
   it('POST /admin/projects/new rejects a weak token (<16 chars, server-side #17)', async () => {
