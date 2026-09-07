@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS logs (
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_checks_project ON checks(project_id);
 CREATE INDEX IF NOT EXISTS idx_logs_check_id ON logs(check_id);
+-- created_at index: the hourly 7-day log cleanup DELETEs by created_at range —
+-- without this, every cleanup run was a full-table scan (D1 rows-read quota burner).
+CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_checks_monitor_type ON checks(monitor, type) WHERE monitor = 1;
 
 -- ============================================================================

@@ -6,13 +6,19 @@ import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult } from './services/logic';
 
 export const scheduled = async (
-  _event: ScheduledEvent,
+  event: ScheduledEvent,
   env: AppBindings,
   ctx: ExecutionContext
 ): Promise<void> => {
   ctx.waitUntil(
     (async () => {
       const now = Math.floor(Date.now() / 1000);
+      // Log cleanup gate: run at the top of each hour, not every minute.
+      // Cron fires every minute but old-log DELETE only needs hourly cadence —
+      // 1440×/day was burning the shared-account D1 rows-read quota (~4M/day).
+      // scheduledTime is the cron-fire instant (minute-aligned), so % 3600 === 0
+      // matches exactly the XX:00 firing each hour.
+      const cleanupDue = Math.floor(event.scheduledTime / 1000) % 3600 === 0;
 
       try {
         // ===== Self-Monitoring: Watch-Dog monitors itself =====
@@ -70,11 +76,14 @@ export const scheduled = async (
           );
         }
 
-        // Clean old logs (7 days)
-        await env.DB
-          .prepare('DELETE FROM logs WHERE created_at < ?')
-          .bind(now - 604800)
-          .run();
+        // Clean old logs (7 days) — hourly, gated above (D1 rows-read quota:
+        // relies on idx_logs_created_at; without it this was a full-table scan)
+        if (cleanupDue) {
+          await env.DB
+            .prepare('DELETE FROM logs WHERE created_at < ?')
+            .bind(now - 604800)
+            .run();
+        }
       } catch (e) {
         console.error('Cron error:', e);
       }

@@ -11,10 +11,10 @@ import { DB, getCheck, resetDb, seedCheck, seedProject, setSlackSettings, TEST_E
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 /** Dispatch the worker's scheduled handler the way the cron trigger would. */
-async function runScheduled(): Promise<void> {
+async function runScheduled(scheduledTimeMs?: number): Promise<void> {
   let pending: Promise<unknown> = Promise.resolve();
   await worker.scheduled(
-    { scheduledTime: Date.now(), cron: '* * * * *', noRetry: () => undefined } as never,
+    { scheduledTime: scheduledTimeMs ?? Date.now(), cron: '* * * * *', noRetry: () => undefined } as never,
     TEST_ENV,
     {
       waitUntil: (p: Promise<unknown>) => {
@@ -91,7 +91,7 @@ describe('scheduled handler', () => {
     expect(self?.last_seen).toBeGreaterThanOrEqual(nowSec() - 5);
   });
 
-  it('deletes logs older than 7 days', async () => {
+  it('deletes logs older than 7 days (hourly gate: top-of-hour firing)', async () => {
     await seedProject({ id: 'svc', token: 'tok-1234567890' });
     await seedCheck('svc', { id: 'svc:health', name: 'health' });
 
@@ -102,9 +102,26 @@ describe('scheduled handler', () => {
       .bind('svc:health', 'ok', nowSec() - 100)
       .run();
 
-    await runScheduled();
+    // Cleanup only runs on the top-of-hour cron firing (scheduledTime % 3600s === 0).
+    const topOfHour = Math.floor(Date.now() / 3600000) * 3600000;
+    await runScheduled(topOfHour);
 
     const remaining = await DB.prepare('SELECT COUNT(*) AS n FROM logs').first<{ n: number }>();
     expect(remaining?.n).toBe(1);
+  });
+
+  it('skips log cleanup on non-top-of-hour firings (D1 quota discipline)', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    await seedCheck('svc', { id: 'svc:health', name: 'health' });
+
+    await DB.prepare('INSERT INTO logs (check_id, status, created_at) VALUES (?, ?, ?)')
+      .bind('svc:health', 'ok', nowSec() - 800000)
+      .run();
+
+    const notTopOfHour = Math.floor(Date.now() / 3600000) * 3600000 + 1800000; // :30
+    await runScheduled(notTopOfHour);
+
+    const remaining = await DB.prepare('SELECT COUNT(*) AS n FROM logs').first<{ n: number }>();
+    expect(remaining?.n).toBe(1); // old log survives — cleanup gated off
   });
 });

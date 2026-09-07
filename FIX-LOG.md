@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-07] D1 rows-read 大戶根治——logs 清理加 created_at 索引＋降頻每小時
+**目標**：消除 watch-dog-db 每日 ~4.1M rows-read 額度消耗（共享 dev 帳號 5M/日上限的元兇——alliance-member dev admin 為此全 500、code 7500）。
+**原因**：cron 每分鐘跑 `DELETE FROM logs WHERE created_at < ?`（7 天清理），`logs.created_at` 無索引 → 每次全表掃描（insights 實證：24h 內 1,135 次、avgRowsRead ~3.6k）× 日 1,440 次 ≈ 4.1M rows/day。
+**預期結果**：①`idx_logs_created_at` 讓 DELETE 走索引 range scan（每次只讀符合列）；②清理改每小時整點跑（`event.scheduledTime % 3600 === 0` 閘——cron 仍每分鐘 fire 做 dead-check，只有清理段 gated），1,440 → 24 次/日；fail-dead 語意不變（清理與死活判定無關）。
+**範圍**：`src/db.sql`（+idx_logs_created_at，冪等）、`src/cron.ts`（cleanupDue 閘）、`tests/cron.test.ts`（runScheduled 接受 scheduledTime；top-of-hour 正例＋:30 反例）。遠端 DB 已 apply 索引（CREATE INDEX IF NOT EXISTS 直下 remote）；worker 已 deploy（728b9caf）。
+**驗證**：tsc ✓ / lint ✓ / guards pool 21/21 ✓ / build（deploy --minify 實上線）✓；remote 索引存在 sqlite_master 查證 ✓。app pool（workerd）本機 glibc 2.31<2.32 無法跑（既有環境限制，CI runner 驗）；額度成效待次日 `wrangler d1 insights watch-dog-db --time-period 1d --sort-by reads` 複查。
+
+
 ### [2026-09-05] WD-03 清償——admin 表單端點對 JSON body 415 fail-loud（拔掉「200＋靜默存空值」地雷）
 
 **目標**：`POST /admin/settings/email`（及所有 parseBody 端點）收到 `content-type: application/json` 時不再「回 200 saved! 卻存入空值」——改為 **415 fail-loud**。
