@@ -20,12 +20,15 @@ export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c,
   // CSRF guard: mutating requests must carry an XHR marker header. A
   // cross-origin <form> POST cannot set custom headers, which blocks
   // browser-replay of cached Basic credentials from other origins.
-  // (htmx sends both accepted headers by default.)
+  // htmx sends HX-Request by default (1.9.10 does NOT send
+  // X-Requested-With — that convention belongs to jQuery/axios); the
+  // X-Requested-With alternative stays accepted for the hx-headers
+  // workarounds in adminViews and curl callers.
   if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
     const isXhr =
-      c.req.header('X-Requested-With') === 'XMLHttpRequest' || !!c.req.header('X-HX-Request');
+      c.req.header('X-Requested-With') === 'XMLHttpRequest' || !!c.req.header('HX-Request');
     if (!isXhr) {
-      return c.json({ error: 'Missing X-Requested-With header' }, 403);
+      return c.json({ error: 'Missing XHR marker header (HX-Request or X-Requested-With)' }, 403);
     }
   }
 

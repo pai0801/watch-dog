@@ -505,6 +505,28 @@ describe('CF usage monitor endpoints', () => {
     expect(del.status).toBe(401);
   });
 
+  it('accepts the htmx-native HX-Request marker (what a browser actually sends)', async () => {
+    // Regression (2026-09-11): the guard used to check the nonexistent
+    // 'X-HX-Request' name, and htmx 1.9.10 sends neither that nor
+    // X-Requested-With — every htmx form POST without an explicit
+    // hx-headers workaround got a silent 403. The real default marker is
+    // HX-Request (see dashboard.ts); it must clear the CSRF guard and
+    // reach the Basic-Auth gate below.
+    const hxOnly = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: { ...FORM, 'HX-Request': 'true' },
+      body: 'account_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&label=X&plan=free',
+    });
+    expect(hxOnly.status).toBe(401); // CSRF passed → stopped by Basic Auth
+
+    const hxOnlyAuthed = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...FORM, 'HX-Request': 'true' },
+      body: 'account_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&label=X&plan=free',
+    });
+    expect(hxOnlyAuthed.status).toBe(200); // reaches the handler (validation fragment)
+  });
+
   it('creates an account (valid id/label/token/plan) without echoing the token', async () => {
     const res = await post(
       `account_id=${TEST_CF.accountId}&label=Test+Account&api_token=${TEST_CF.token}&plan=free`

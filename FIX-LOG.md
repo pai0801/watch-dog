@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-11] admin CSRF guard header 名根治——X-HX-Request（不存在的 header）改為 HX-Request（htmx 實際預設），靜默 407 天的 htmx 表單全線復活
+
+**目標**：操作者於 /admin → CF 用量 tab 新增帳號，「無錯誤提示但儲存無動作」——htmx 表單 POST 全部靜默失敗。
+**原因**：`adminAuth.ts` CSRF guard 檢查 `X-Requested-With` **或** `X-HX-Request`——後者是**不存在的 header 名**（htmx 實際送 `HX-Request`，無 X- 前綴；且 htmx 1.9.10 也不送 X-Requested-With，實測 dist 內 0 次出現）。兩個 marker 全落空 → 所有未貼 `hx-headers` 繞道的 htmx POST 一律 403 → htmx 預設不 swap 非 2xx 回應 → 完全無聲。adminViews 內 12 處 `hx-headers='{"X-Requested-With":...}''` 是前人逐顆按鈕貼的繞道（whack-a-mole），帳號新增表單恰好漏網。**證據鏈**：`wrangler tail` 即時日誌抓到瀏覽器 POST（帶 `hx-request: true`、無 `x-requested-with`）→ 403；vitest app-pool 本地重現；隔離探針證明 `X-HX-Request` 與 `HX-Request` 是不同 header 名（非大小寫問題）；prod 探測矩陣前後對照（403→401）。
+**預期結果**：guard 改查 `HX-Request`（`dashboard.ts:20` 既有正名用法）＋保留 `X-Requested-With`（相容 hx-headers 繞道與 curl）。所有 htmx 表單一體適用，無需逐一貼繞道。既有繞道留著無害（不改，避免 churn）。
+**範圍**：`src/middleware/adminAuth.ts`（一行查核名＋註解＋403 訊息）、`tests/admin.test.ts`（+1 回歸測試：HX-Request-only 過 CSRF 撞 401、帶認證達 handler 200——原測試組只用 X-Requested-With，恰好漏掉此路徑）。
+**驗證**：`make ci` 等效全綠（tsc ✓ / lint 0 warning ✓ / app pool 134/134 ✓ / guards 21/21 ✓）。部署後線上探測矩陣：HX-Request-only 403→**401**（過 CSRF）、無 marker 維持 403（CSRF 防護未弱化）、X-Requested-With 維持 401。End-to-end：操作者隨後成功新增 8 帳號＋立即輪詢全數 `last_ok` 更新（14:30）。
+
 ### [2026-09-11] CF 全帳號用量監控上線——每 30 分鐘 GraphQL Analytics 輪詢＋60%/80% 閾值＋速率投影警示（含 email）
 
 **目標**：兩次共享帳號 D1 額度事故（9/7 cleanup ~4.1M、9/11 countRecentErrors ~7.3M rows/day）都是「服務 500 才發現」——建主動預警層：對全部 8 個 CF 帳號每 30 分鐘輪詢 D1/Workers/KV/R2 用量，已用 ≥60% Slack 警告、≥80% Slack＋email 危險、燃燒速率預估今日超額 → 警告（含預估觸頂時間）。操作者約束：**不得增加 cron 使用**（觸發器維持單一 `* * * * *` 零變動，30 分鐘節奏由 handler 內閘控區分——與每小時 cleanup 同 `% 閘` 機制）且**監控自身 D1 用量必須極小**。
