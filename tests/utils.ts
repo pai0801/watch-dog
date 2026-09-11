@@ -26,6 +26,13 @@ export async function applySchema(): Promise<void> {
   schemaApplied = true;
 }
 
+/** Re-apply src/db.sql unconditionally — restores tables a destructive test
+ *  dropped (applySchema's once-per-worker flag would skip it). */
+export async function reapplySchema(): Promise<void> {
+  schemaApplied = false;
+  await applySchema();
+}
+
 /** Wipe all rows so every test starts from a clean slate. */
 export async function resetDb(): Promise<void> {
   await applySchema();
