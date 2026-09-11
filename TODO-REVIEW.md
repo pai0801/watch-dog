@@ -10,7 +10,8 @@
 
 > 2026-09-04 末輪狀態：16 項舊債全數清償、零未償（#1–#6 docs/CSS；#9–#16 見 88b0a3c / 3ad4bf7；
 > #7 見 042c8d2＋末輪收斂；#8 見 f4b47cd）。#17/#18 為 2026-09-05 首次部署後線上實測發現的新債，同日清償。
-> #19 為 2026-09-10 警報對稱化輪發現的 ok-pulse 併發 race，同日清償——零未償。
+> #19 為 2026-09-10 警報對稱化輪發現的 ok-pulse 併發 race，同日清償。
+> #20/#21 為 2026-09-12 對外用量 API 輪（Task 8 quality review）發現的 pre-existing 債，待排程。
 > 表列 row 保留為歷史記錄，處置細節見各 commit 與 FIX-LOG 條目。
 
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
@@ -34,6 +35,8 @@
 | 17 | `src/routes/api.ts` `PUT /api/config` | ~~API 層不驗 project token 強度——「至少 16 字元」只在 admin UI client-side~~ | 註冊封閉化：`PUT /api/config` 未知 project 回 404（建立只走 `/admin`）；`POST /admin/projects/new` 加 server-side `token.length >= 16`（api/admin 測試 +2） | **已清償 2026-09-05**（closed registration 輪） |
 | 18 | `src/routes/api.ts` 註冊面 | ~~開放註冊＋無 rate limit——知道 URL 者可建立垃圾 project；更嚴重：建 check 不發 pulse → 判死警報打進操作者 Slack（警報通道虐待）~~ | 註冊封閉化後未認證寫入面歸零——垃圾/虐待專案建立現需 admin 憑證；admin 面 brute-force 由既有 Basic Auth + timingSafeEqual 姿態涵蓋 | **已清償 2026-09-05**（隨 #17 一併消除） |
 | 19 | `src/services/logic.ts` ok 路徑 UPDATE（status/failure_count 覆寫） | ~~併發 race：同秒多 pulse 交錯時，持舊快照的 ok pulse 無條件覆寫 `status='ok', failure_count=0`（無 CAS），可洗掉剛寫入的 error 狀態——2026-09-10 事件 04:15→04:16 可觀測實證~~ | ok 轉移加 CAS（`WHERE failure_count = ?` 快照比對）；敗者**不重試**、降級為只推進 `last_seen`＋記 log（pulse 必須留痕——不變式 ①），error 狀態存活到下一個不與 error 競速的乾淨 ok pulse 才執行恢復轉移（與 fix A episode 哲學一致） | **已清償 2026-09-10**（見 FIX-LOG 同日第二則；回歸測試×2） |
+| 20 | `src/lib/auth.ts:14-25` `timingSafeEqual` wrapper | 只 guard UTF-16 `a.length !== b.length` 就把 UTF-8 buffers 交給 `crypto.subtle.timingSafeEqual`（要求**位元組**長度相等）——與 secret 同 UTF-16 長度的多位元組 token（如 `têst-…`）觸發 TypeError → Hono 500。**非 bypass**（500 ≠ 認證通過，fail-closed 語義完好），但未認證輸入可在所有共用此 helper 的 Bearer 端點（`/api/config`、`/api/pulse`、`/api/cf-usage`）觸發 500；secret 長度（64-hex）易猜。2026-09-12 Task 8 quality review 實驗證實（dev-brain id 56f51f998840） | wrapper 內先 `TextEncoder` 編碼兩字串、`byteLength` 不等提前 `return false`（約 3 行）；補一條多位元組 token → 401（非 500）回歸測試 | 待排程（本輪發現，未修——存量債不順手改；修復時一併覆蓋三端點） |
+| 21 | `cf_accounts.label`（`src/db.sql`＋`src/routes/admin.ts` 帳號建立） | label 無唯一性約束（schema 層）也無 admin 端檢查——兩個 enabled 帳號共用 label 時，`getTodayCfUsage` 的 `ORDER BY a.label` 分組把它們合併成一張卡：首頁顯示交錯重複指標列；API 回應單一「帳號」帶兩帳號的 metrics（machine consumer 以 metric 為 key 會 last-wins 歧義）；`detail=1` 解析到 `created_at` 最先者。2026-09-12 Task 8 quality review 實驗證實（回應 200 無 crash，行為「sane」但語義模糊） | admin 端建立/編輯時 server-side label 唯一性檢查（一行 `SELECT 1 FROM cf_accounts WHERE label = ? AND account_id != ?`）；或 schema `UNIQUE`（需 migration，成本較高）；文件面 Task 9 已註明 label 為身分、務必唯一 | 待排程（首頁既有行為，非本輪引入；單操作者系統實務風險低——操作者自己建帳號） |
 
 ## 複本盤點確認非債項（避免重複調查）
 
