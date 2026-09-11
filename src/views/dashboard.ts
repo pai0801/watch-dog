@@ -187,10 +187,12 @@ const CfAccountCard = (card: CfAccountCardData) => html`
   <details class="cf-expand">
     <summary>全部指標與資源明細</summary>
     ${card.metrics.map((row) => CfMetricLine(row, card.plan))}
+    <!-- no "once" modifier — htmx once is once-EVER; a failed load must be retryable
+         by collapse/re-expand (cache absorbs repeat fetches) -->
     <div
       class="cf-detail"
       hx-get="/cf-usage/detail?label=${encodeURIComponent(card.label)}"
-      hx-trigger="toggle from:closest details once"
+      hx-trigger="toggle from:closest details"
       hx-swap="innerHTML"
     >
       展開後載入資源明細…

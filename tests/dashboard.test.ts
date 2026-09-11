@@ -91,7 +91,11 @@ describe('GET / — dual-tab homepage with CF usage pane', () => {
     const res = await SELF.fetch('http://localhost/');
     const html = await res.text();
     // face renders the top (danger) metric; details re-renders all three —
-    // the danger line therefore appears TWICE, warn/plain once (details only)
+    // the danger line therefore appears TWICE, warn/plain once (details only).
+    // Regexes anchor on the attribute-closing quote because the <style> block
+    // contains the same names as CSS selectors (bare substrings over-count);
+    // blind spot: a projected row (cf-projected suffix) matches none of them,
+    // so these counts are exact only for seeds without projected rows.
     expect((html.match(/cf-bar-fill"/g) ?? []).length).toBe(1);
     expect((html.match(/cf-warn"/g) ?? []).length).toBe(1);
     expect((html.match(/cf-danger"/g) ?? []).length).toBe(2);
@@ -285,7 +289,7 @@ describe('homepage card sorting + collapsed face (Task 7)', () => {
     expect(html).toContain('cf-warn-chip');
     expect(html).toContain('全部指標與資源明細');
     expect(html).toContain('hx-get="/cf-usage/detail?label=Test%20Account"');
-    expect(html).toContain('hx-trigger="toggle from:closest details once"');
+    expect(html).toContain('hx-trigger="toggle from:closest details"');
   });
 
   it('pauses the 30s auto-reload while a detail is open (hyperscript guard)', async () => {

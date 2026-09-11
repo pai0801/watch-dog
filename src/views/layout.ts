@@ -19,6 +19,8 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <!-- Hyperscript (powers the _ attribute handlers: 30s auto-reload + details-open pause guard) -->
+  <script src="https://unpkg.com/hyperscript.org@0.9.12"></script>
   <!-- Alpine.js -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
   <style>
