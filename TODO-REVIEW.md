@@ -13,6 +13,7 @@
 > #19 為 2026-09-10 警報對稱化輪發現的 ok-pulse 併發 race，同日清償。
 > #20/#21 為 2026-09-12 對外用量 API 輪（Task 8 quality review）發現的 pre-existing 債，待排程。
 > #22 為同輪 Task 9 quality review 發現的既有文件矛盾（docs/api.md /admin 認證描述過時），待排程。
+> #23 為同輪 Task 10 dev 起動時實踩的既有腳本債（dev-tunnel.sh kill_port 多 PID 失效＋ngrok 變數名錯），待排程。
 > 表列 row 保留為歷史記錄，處置細節見各 commit 與 FIX-LOG 條目。
 
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
@@ -39,6 +40,7 @@
 | 20 | `src/lib/auth.ts:14-25` `timingSafeEqual` wrapper | 只 guard UTF-16 `a.length !== b.length` 就把 UTF-8 buffers 交給 `crypto.subtle.timingSafeEqual`（要求**位元組**長度相等）——與 secret 同 UTF-16 長度的多位元組 token（如 `têst-…`）觸發 TypeError → Hono 500。**非 bypass**（500 ≠ 認證通過，fail-closed 語義完好），但未認證輸入可在所有共用此 helper 的 Bearer 端點（`/api/config`、`/api/pulse`、`/api/cf-usage`）觸發 500；secret 長度（64-hex）易猜。2026-09-12 Task 8 quality review 實驗證實（dev-brain id 56f51f998840） | wrapper 內先 `TextEncoder` 編碼兩字串、`byteLength` 不等提前 `return false`（約 3 行）；補一條多位元組 token → 401（非 500）回歸測試 | 待排程（本輪發現，未修——存量債不順手改；修復時一併覆蓋三端點） |
 | 21 | `cf_accounts.label`（`src/db.sql`＋`src/routes/admin.ts` 帳號建立） | label 無唯一性約束（schema 層）也無 admin 端檢查——兩個 enabled 帳號共用 label 時，`getTodayCfUsage` 的 `ORDER BY a.label` 分組把它們合併成一張卡：首頁顯示交錯重複指標列；API 回應單一「帳號」帶兩帳號的 metrics（machine consumer 以 metric 為 key 會 last-wins 歧義）；`detail=1` 解析到 `created_at` 最先者。2026-09-12 Task 8 quality review 實驗證實（回應 200 無 crash，行為「sane」但語義模糊） | admin 端建立/編輯時 server-side label 唯一性檢查（一行 `SELECT 1 FROM cf_accounts WHERE label = ? AND account_id != ?`）；或 schema `UNIQUE`（需 migration，成本較高）；文件面 Task 9 已註明 label 為身分、務必唯一 | 待排程（首頁既有行為，非本輪引入；單操作者系統實務風險低——操作者自己建帳號） |
 | 22 | `docs/api.md:18-19` /admin 認證描述 | 仍寫 /admin 使用 `ADMIN_TOKEN` secret、username ignored——與全域矛盾：實際為 `ADMIN_ACCOUNT`/`ADMIN_PASSWORD` Basic Auth 對（`secrets-archive/SECRETS.md`、adminAuth 實作、README API Endpoints 表均為 Basic Auth；ADMIN_TOKEN 列已在 SECRETS.md 劃線除役）。2026-09-12 Task 9 quality review 發現（pre-existing，非該 commit 引入） | 改寫該兩行為 Basic Auth（`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`）描述，移除 ADMIN_TOKEN 殘句 | 待排程（文件債，零行為影響——/admin 實際認證正確，僅文件誤導讀者） |
+| 23 | `dev-tunnel.sh:58-78`（kill_port）＋`:115`（start_ngrok） | ①kill_port 把 `lsof -t` 多 PID 多行輸出以引號展開成**單一參數**交給 `kill`/`kill -9`——port 被 wrangler＋workerd 同時持有時兩次 kill 皆無效、被 `2>/dev/null \|\| true` 吞掉，卻仍無條件印「Port 已釋放」成功；`start_dev` 的 curl 探測接著打到殘留舊 server → 假「已啟動」（2026-09-12 Task 10 dev 起動實踩：前 session 殘留 process 佔 8789，新 wrangler 綁 port 失敗退出）。②`npx ngrok http "$port"` 引用未定義小寫變數（應 `$PORT`）——ngrok 路徑未實跑過故未爆。③`:99` Network IP 硬編碼舊主機 192.168.1.200（CLAUDE.md 已載） | kill 改 `lsof -ti :"$port" \| xargs -r kill`（-9 同）＋「已釋放」訊息改為 port 複查後條件輸出；`$port`→`$PORT`；Network IP 改 `ip -4 addr` 實測值 | 待排程（腳本債，未修——本地開發工具，非部署路徑；Task 10 輪以手動 kill 舊 process 繞過） |
 
 ## 複本盤點確認非債項（避免重複調查）
 
