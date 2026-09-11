@@ -20,6 +20,7 @@
 **預期結果**：`idx_logs_check_id_created_at (check_id, created_at)` 複合索引讓滑窗計數走範圍掃描（僅讀視窗內列數）；前綴同時覆蓋純 check_id 的 DELETE（config replace-set、admin 清 log）與 admin log 檢視器（`WHERE check_id=? ORDER BY created_at DESC LIMIT ?` 原本掃全 partition 再排序，順帶受益）；舊單欄索引完全冗餘 → DROP（索引數淨持平、寫入放大不增）。查詢文本零變動——planner 自動改選新索引，無程式碼變動、無 worker deploy。
 **範圍**：`src/db.sql`（+複合索引＋DROP 舊索引，皆冪等）。remote D1 已直下（`CREATE INDEX IF NOT EXISTS` + `DROP INDEX IF EXISTS`，操作者批准 2026-09-11）。
 **驗證**：remote `meta.rows_read` 前後實測（dev-brain 教訓：單查詢成本以此為 ground truth，insights 日均會稀釋）——**BEFORE 14,925 → AFTER 33（452×，結果一致 n=3）**；`EXPLAIN QUERY PLAN` 改走 `idx_logs_check_id_created_at (check_id=? AND created_at>?)` ✓；`make ci` 全綠（tsc ✓ / lint ✓ / app pool 98/98 ✓ / guards 21/21 ✓ / §L §M ✓）。日總量預期 7.28M → ~15k（504 次 × ~30 rows）；insights 指紋次日複查 avgRowsRead 降位。9/7 修復確認持續有效（hourly DELETE 24h 僅讀 10 rows）。
+**部署後驗證（2026-09-11）**：insights 1h 複查指紋命中——`avgRowsRead = 32`（修復前 14,445，預期 30–60 區間內，與 meta.rows_read 實測 33 一致），planner 線上穩定走複合索引；同窗 top queries 無新 rows-read 大戶。無需 EXPLAIN 複查（行為指紋已證）。
 
 ### [2026-09-10] ok-pulse 併發覆寫 race 根治（TODO-REVIEW #19）——error-sticky CAS＋心跳降級寫
 
