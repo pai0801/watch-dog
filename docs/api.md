@@ -233,6 +233,52 @@ Content-Type: application/json
 
 ---
 
+### GET /api/cf-usage
+
+Read-only CF quota usage feed for cross-project automation (other repos' Claude Code). Requires the static usage token — **not** a project token.
+
+**Request:**
+```http
+GET /api/cf-usage?account=helperp&detail=1
+Authorization: Bearer <CF_USAGE_API_TOKEN>
+```
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| account | string | Optional. Filter to one account by label (unknown label → 404) |
+| detail | string | Optional. `1` = include per-resource detail (live GraphQL query, 5-min per-isolate cache) |
+
+**Response:**
+```json
+{
+  "generated_at": 1738464000,
+  "quota_reset": "UTC 00:00 (Taipei 08:00)",
+  "accounts": [
+    {
+      "label": "helperp",
+      "plan": "free",
+      "last_polled_at": 1738463000,
+      "metrics": [
+        { "metric": "d1_rows_read", "label": "D1 rows 讀取", "value": 1000000, "quota": 5000000, "pct": 20, "projected_eod": null }
+      ],
+      "detail": {
+        "label": "helperp",
+        "fetchedAt": 1738464000,
+        "groups": [
+          { "type": "d1", "title": "D1 Databases", "items": [ { "name": "watch-dog-db", "metrics": { "d1_rows_read": 900000, "d1_rows_written": 5000 } } ] }
+        ]
+      }
+    }
+  ]
+}
+```
+
+`quota`/`pct` are `null` for record-only metrics (no free-tier quota). With `detail=1`, a per-account fetch failure yields `detail_error` on that account only (HTTP stays 200). The response never contains account ids, resource ids, or token values. Usage token provisioning lives in SECRETS.md (`CF_USAGE_API_TOKEN`).
+
+---
+
 ## Error Responses
 
 All endpoints may return error responses:

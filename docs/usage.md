@@ -82,6 +82,7 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 - **自我監控**：token 失效/網路錯只在「ok→fail 轉換」時寄一則 Slack 自我警告（死 token 不會洗版）；全部帳號同時失敗才寄信
 - **成本紀律**：監控自身用量 ≈80 rows read + ≈80 rows written /poll（48 polls/day ≈ 0.08% 讀 / 3.8% 寫額度）——監控自己在 host 帳號的 `d1_rows_read/written` 曲線上是特徵不是 bug
 - **首頁雙 Tab（2026-09-11 起）**：公開首頁 `/` 以 tab 切換「服務狀態／CF 用量」——用量卡＝Label＋plan 徽章＋各指標值＋配額進度條（<60% 藍／≥60% 琥珀／≥80% 紅；投影超額＝45° 條紋＋⚠，tooltip 帶預估收盤值）；**永不顯示 32-hex Account ID**（SQL 即不選取）；tab 存 URL hash（`#status`/`#cf`）可深連結、30 秒自動刷新後停留原 tab。`/admin` CF tab 職責不變（帳號管理＋立即輪詢＋快照表）
+- **帳號卡排序＋折疊＋明細展開（2026-09-12 起）**：卡片依「最緊指標」（最高配額比例）降序排列；折疊面只顯示該最緊指標＋`N 項 ≥60%` 琥珀 chip；點開「全部指標與資源明細」顯示 9 指標全列＋**逐資源明細**（Workers/Pages 專案名、D1 database/KV namespace/R2 bucket 名稱與用量——明細為展開時即時查詢，per-isolate 5 分鐘快取；D1/KV 名稱由每日 REST 解析，未解析顯示短 id）。展開期間 30 秒自動刷新暫停（收合後恢復）。**對外 API**：`GET /api/cf-usage`（Bearer `CF_USAGE_API_TOKEN`，見 README「CF 用量 API」）供其它專案的 Claude Code 取用量做分析。
 
 ## Zero Trust（Cloudflare Access）前置規劃
 

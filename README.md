@@ -161,6 +161,41 @@ scripts/enroll.sh my-service 我的服務
 | `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
 | `/admin` | GET | Basic Auth (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`) | Admin dashboard |
 
+### CF 用量 API（供其它專案的 Claude Code／自動化使用）
+
+watch-dog 對外提供**唯讀** CF 用量查詢 API，讓其它專案（或其 Claude Code）取得全部監控帳號的配額用量做後續分析與優化。
+
+**認證**：`Authorization: Bearer <CF_USAGE_API_TOKEN>`（靜態 token、read-only）。Token 值存於操作者本機 `~/.config/watch-dog/usage-api-token`（repo 外，chmod 600）——向操作者索取該檔內容即可；token 值 [NEVER] 寫進任何 committed 檔。
+
+```bash
+TOKEN=$(cat ~/.config/watch-dog/usage-api-token)
+BASE="https://watch-dog.helperp.workers.dev"
+
+# 全部帳號今日用量（9 指標/帳號：值/配額/百分比/收盤預估）
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/cf-usage"
+
+# 單一帳號＋逐資源明細（Workers/Pages 專案名、D1/KV/R2 各資源名稱與用量）
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/cf-usage?account=helperp&detail=1"
+```
+
+| 參數 | 說明 |
+|------|------|
+| `account` | 選填。依 label 過濾單一帳號（未知 label → 404） |
+| `detail` | 選填。`1` = 附逐資源明細（每帳號即時查詢 GraphQL，per-isolate 5 分鐘快取） |
+
+`account` 值請以 URL encode 傳遞（query 解碼會把 `+` 視為空格——label 內字面 `+` 需寫 `%2B`）。
+
+回應：`generated_at`、`quota_reset`（UTC 00:00＝台北 08:00）、`accounts[]`（`label`/`plan`/`last_polled_at`/`metrics[]`：`metric`/`label`/`value`/`quota`/`pct`/`projected_eod`）。`detail=1` 時另帶 `detail.groups[]`（workers/pages/d1/kv/r2 逐資源 `name`＋`metrics`；查詢失敗 → `detail_error`，僅降級該帳號）。**回應永不包含 32-hex account id、資源 id 或任何 token 值**（label／名稱／數字而已）。
+
+**給目標專案 CLAUDE.md 的指示塊**（直接貼上）：
+
+> 要查本專案所在 CF 帳號的配額用量（watch-dog 集中監控）：
+> ```bash
+> curl -s -H "Authorization: Bearer $(cat ~/.config/watch-dog/usage-api-token)" \
+>   "https://watch-dog.helperp.workers.dev/api/cf-usage?account=<LABEL>&detail=1"
+> ```
+> `<LABEL>` 問操作者（或不帶 `account` 列出全部帳號）。判讀：`metrics[].pct` = 今日已用配額 %（≥60 警戒、≥80 危險）；`projected_eod` = 燃燒速率收盤預估（> `quota` 即將超額）。分析步驟：找 pct 最高與 `projected_eod` 超額的指標 → 對照 `detail.groups` 同型別資源找消耗大戶 → 提出優化建議。注意 `detail=1` 逐帳號即時查詢為序列執行（冷快取最壞 ~N×10 秒）——自動化取用建議帶寬鬆 timeout，或先不帶 `detail` 輪詢、需要時再補查。
+
 ## Development
 
 ```bash
