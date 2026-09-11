@@ -17,6 +17,9 @@
 // fragment and API responses are assembled from labels only (source-level
 // cutoff of the 32-hex account id, same invariant as the homepage pane).
 
+import { D1Database } from '@cloudflare/workers-types';
+import type { CfAccount } from './cfUsage';
+
 export type ResourceGroupType = 'workers' | 'pages' | 'd1' | 'kv' | 'r2';
 /** Resource types whose names come from the REST lists (cf_resource_names). */
 export type NameResourceType = 'd1' | 'kv';
@@ -227,5 +230,118 @@ export function parseResourceDetail(
     });
     detail.groups.push({ type, title: GROUP_TITLES[type], items });
   }
+  return detail;
+}
+
+// ===== on-demand fetch + per-isolate caches =====
+
+const CF_GRAPHQL_URL = 'https://api.cloudflare.com/client/v4/graphql';
+
+/** Per-isolate detail cache TTL — the load-bearing rate limiter (≤288
+ *  upstream calls/account/day no matter what). */
+export const CACHE_TTL_MS = 300_000;
+
+/** account label -> CfAccount | null. Null (unknown/disabled) is cached too:
+ *  repeated lookups of a bad label must not hit D1 every request. */
+const accountByLabelCache = new Map<string, { at: number; account: CfAccount | null }>();
+/** account_id -> { at, detail } — only successful fetches are cached. */
+const detailCache = new Map<string, { at: number; detail: ResourceDetail }>();
+
+/** Test hook: module-level caches survive across tests in the shared
+ *  worker — every touching suite must reset them in beforeEach. */
+export function resetResourceCaches(): void {
+  accountByLabelCache.clear();
+  detailCache.clear();
+}
+
+async function findEnabledAccountByLabel(db: D1Database, label: string): Promise<CfAccount | null> {
+  const row = await db
+    .prepare('SELECT * FROM cf_accounts WHERE label = ? AND enabled = 1 ORDER BY created_at LIMIT 1')
+    .bind(label)
+    .first<CfAccount>();
+  return row ?? null;
+}
+
+/** All stored names for an account, split by type (KV ids normalized bare
+ *  hex; D1 uuids kept verbatim — both sides of that join are hyphenated). */
+async function loadNames(
+  db: D1Database,
+  accountId: string
+): Promise<Partial<Record<NameResourceType, Map<string, string>>>> {
+  const rows = await db
+    .prepare('SELECT resource_type, resource_id, name FROM cf_resource_names WHERE account_id = ?')
+    .bind(accountId)
+    .all<{ resource_type: string; resource_id: string; name: string }>();
+  const names: Partial<Record<NameResourceType, Map<string, string>>> = {};
+  for (const row of rows.results ?? []) {
+    if (row.resource_type !== 'd1' && row.resource_type !== 'kv') continue;
+    const map = names[row.resource_type] ?? new Map<string, string>();
+    map.set(row.resource_type === 'kv' ? normalizeNsId(row.resource_id) : row.resource_id, row.name);
+    names[row.resource_type] = map;
+  }
+  return names;
+}
+
+interface GqlDetailResponse {
+  data?: { viewer?: { accounts?: RgAccountNode[] | null } } | null;
+  errors?: Array<{ message?: string } | string> | null;
+}
+
+/** Fetch + parse one account's per-resource detail, behind the two caches.
+ *  Returns null for unknown/disabled label; throws on upstream failure (the
+ *  fragment route turns the throw into an inline error panel, the API into
+ *  a per-account detail_error — never a page-level failure). */
+export async function getResourceDetailByLabel(
+  db: D1Database,
+  label: string,
+  nowMs: number = Date.now()
+): Promise<ResourceDetail | null> {
+  let cachedAccount = accountByLabelCache.get(label);
+  if (!cachedAccount || nowMs - cachedAccount.at > CACHE_TTL_MS) {
+    cachedAccount = { at: nowMs, account: await findEnabledAccountByLabel(db, label) };
+    accountByLabelCache.set(label, cachedAccount);
+  }
+  if (!cachedAccount.account) return null;
+  const account = cachedAccount.account;
+
+  const cached = detailCache.get(account.account_id);
+  if (cached && nowMs - cached.at <= CACHE_TTL_MS) {
+    // re-stamp the requested label — a rename must not leak the old one
+    return { ...cached.detail, label };
+  }
+
+  // Error mapping mirrors fetchAccountUsage in cfUsage.ts on purpose: both
+  // surfaces (admin last_error vs fragment/API) speak the same vocabulary.
+  const response = await fetch(CF_GRAPHQL_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${account.api_token}`,
+    },
+    body: JSON.stringify({ query: buildResourceQuery(account.account_id, nowMs) }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    const hint =
+      response.status === 401 || response.status === 403
+        ? ' — token invalid or lacks Analytics Read'
+        : '';
+    throw new Error(`HTTP ${response.status}${hint}`);
+  }
+  const body = (await response.json()) as GqlDetailResponse;
+  if (body.errors && body.errors.length > 0) {
+    const msgs = body.errors
+      .map((e) => (typeof e === 'string' ? e : e.message ?? 'unknown'))
+      .join('; ');
+    throw new Error(`GraphQL errors: ${msgs.slice(0, 300)}`);
+  }
+  const node = body.data?.viewer?.accounts?.[0];
+  if (!node) {
+    throw new Error('empty viewer.accounts — token not scoped to this account');
+  }
+
+  const names = await loadNames(db, account.account_id);
+  const detail = parseResourceDetail(label, node, names, Math.floor(nowMs / 1000));
+  detailCache.set(account.account_id, { at: nowMs, detail });
   return detail;
 }

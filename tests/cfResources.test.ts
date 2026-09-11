@@ -2,13 +2,26 @@
 // Per-resource detail: pure query/parser tests + the on-demand fetch layer
 // (Task 3) — 5-min cache behavior, error mapping, name joins.
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import {
   buildResourceQuery,
+  getResourceDetailByLabel,
   normalizeNsId,
   parseResourceDetail,
+  resetResourceCaches,
 } from '../src/services/cfResources';
-import { CF_TEST_NOW, TEST_CF } from './utils';
+import { network } from './network';
+import {
+  CF_TEST_NOW,
+  DB,
+  cfD1ListUrl,
+  cfKvListUrl,
+  resetDb,
+  seedCfAccount,
+  seedResourceName,
+  TEST_CF,
+} from './utils';
 
 describe('normalizeNsId', () => {
   it('strips hyphens and lowercases (three observed formats → one canonical)', () => {
@@ -31,6 +44,11 @@ describe('buildResourceQuery', () => {
     expect(q).toContain('dimensions { databaseId }');
     expect(q).toContain('dimensions { namespaceId }');
     expect(q).toContain('dimensions { bucketName }');
+    // three verified filter forms pinned (CF_TEST_NOW = 2026-09-11T12:00Z)
+    expect(q).toContain('date_geq: "2026-09-11"');
+    expect(q).toContain('datetime_geq: "2026-09-11T00:00:00Z"');
+    expect(q).toContain('datetimeHour_geq: "2026-09-11T00:00:00Z"');
+    expect(q).toContain('limit: 100');
     // dimensions/sum/max are selection fields, never call args (live-API verified)
     expect(q).not.toContain('sum(');
     expect(q).not.toContain('max(');
@@ -104,5 +122,101 @@ describe('parseResourceDetail', () => {
     };
     const detail = parseResourceDetail('X', node, {}, 1_000);
     expect(detail.groups[0].items.map((i) => i.id)).toEqual(['a-row', 'b-row']);
+  });
+
+  it('max-agg datasets take the max across adaptive multi-rows (storage gauges never sum)', () => {
+    const node = {
+      kvs: [
+        { dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789' }, max: { byteCount: 1024, keyCount: 7 } },
+        { dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789' }, max: { byteCount: 2048, keyCount: 3 } },
+      ],
+    };
+    const detail = parseResourceDetail('X', node, {}, 1_000);
+    expect(detail.groups[0].items[0].metrics).toEqual({ kv_storage_bytes: 2048, kv_storage_keys: 7 });
+  });
+});
+
+// ---- fetch layer (Task 3) ----
+
+const REST_EMPTY = { success: true, result: [] };
+
+const detailFixture = () => ({
+  data: { viewer: { accounts: [detailNode] } },
+});
+
+let gqlHits = 0;
+
+beforeEach(async () => {
+  await resetDb();
+  resetResourceCaches(); // module-level caches survive across tests (shared worker)
+  gqlHits = 0;
+  network.use(
+    http.post(TEST_CF.gqlUrl, () => {
+      gqlHits++;
+      return HttpResponse.json(detailFixture());
+    }),
+    http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+  );
+});
+
+describe('getResourceDetailByLabel', () => {
+  it('returns null for an unknown label without any GraphQL call (null cached)', async () => {
+    expect(await getResourceDetailByLabel(DB, 'nope', CF_TEST_NOW)).toBeNull();
+    expect(gqlHits).toBe(0);
+  });
+
+  it('returns null for a disabled account', async () => {
+    await seedCfAccount({ enabled: 0 });
+    expect(await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW)).toBeNull();
+  });
+
+  it('caches per account for 5 minutes — one GraphQL hit within TTL, refetch after', async () => {
+    await seedCfAccount();
+    await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
+    await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW + 60_000);
+    expect(gqlHits).toBe(1);
+    await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW + 301_000);
+    expect(gqlHits).toBe(2);
+  });
+
+  it('serves the requested label even when the cached detail was fetched under another label', async () => {
+    await seedCfAccount();
+    await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
+    // rename the account — label cache misses, detail cache hits
+    await DB.prepare("UPDATE cf_accounts SET label = 'Renamed' WHERE account_id = ?").bind(TEST_CF.accountId).run();
+    // label cache still holds 'Test Account' → account row (5 min) → detail cache hit:
+    const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW + 60_000);
+    expect(detail?.label).toBe('Test Account');
+    expect(gqlHits).toBe(1);
+  });
+
+  it('resolves stored names into the detail (d1 + kv, kv keyed normalized)', async () => {
+    await seedCfAccount();
+    await seedResourceName(TEST_CF.accountId, 'd1', '11111111-2222-3333-4444-555555555555', 'Production DB');
+    await seedResourceName(TEST_CF.accountId, 'kv', 'abcdef0123456789abcdef0123456789', 'site-cache');
+    const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
+    expect(detail?.groups.find((g) => g.type === 'd1')?.items[0].name).toBe('Production DB');
+    expect(detail?.groups.find((g) => g.type === 'kv')?.items[0].name).toBe('site-cache');
+  });
+
+  it('maps upstream failures to readable errors (HTTP 401 hint, GraphQL errors)', async () => {
+    await seedCfAccount();
+    network.use(http.post(TEST_CF.gqlUrl, () => new HttpResponse(null, { status: 401 })));
+    await expect(getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW)).rejects.toThrow(
+      /HTTP 401 — token invalid or lacks Analytics Read/
+    );
+  });
+
+  it('a failed fetch is not cached — the next call retries and can succeed', async () => {
+    await seedCfAccount();
+    let fail = true;
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => (fail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(detailFixture())))
+    );
+    await expect(getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW)).rejects.toThrow('HTTP 500');
+    fail = false;
+    const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
+    expect(detail?.groups.length).toBeGreaterThan(0);
   });
 });
