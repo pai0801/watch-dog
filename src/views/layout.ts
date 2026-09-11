@@ -145,6 +145,120 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
       margin-bottom: 0.5rem;
       color: #aaa;
     }
+    /* CF usage pane (homepage CF 用量 tab, 2026-09-11). Status palette
+       validated for CVD separation (deutan deltaE 13.7) and >=3:1 contrast
+       on the card surface; the % text stays neutral ink so color is never
+       the only signal. cf-projected swaps the solid fill for 45-degree
+       stripes of the same level pair (texture = secondary encoding). */
+    .dashboard-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .cf-summary {
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+    .cf-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .cf-account-card {
+      border: 1px solid #333;
+      border-radius: 0.5rem;
+      padding: 1.25rem;
+      background: #242424;
+    }
+    .cf-account-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .cf-account-header h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 0;
+    }
+    .cf-plan-badge {
+      padding: 0.125rem 0.6rem;
+      background: rgba(52, 152, 219, 0.15);
+      color: #3498db;
+      border-radius: 1rem;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+    }
+    .cf-metric {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #2e2e2e;
+    }
+    .cf-metric:last-child {
+      border-bottom: none;
+    }
+    .cf-metric-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.75rem;
+    }
+    .cf-metric-name {
+      font-size: 0.8rem;
+      color: #bbb;
+    }
+    .cf-metric-val {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .cf-metric-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.3rem;
+    }
+    .cf-bar {
+      flex: 1;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .cf-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      --bar: #3498db;
+      --bar-dim: #1b5e88;
+      background: var(--bar);
+    }
+    .cf-bar-fill.cf-warn {
+      --bar: #f39c12;
+      --bar-dim: #9a6a0b;
+    }
+    .cf-bar-fill.cf-danger {
+      --bar: #e74c3c;
+      --bar-dim: #92271a;
+    }
+    .cf-bar-fill.cf-projected {
+      background: repeating-linear-gradient(
+        45deg,
+        var(--bar) 0,
+        var(--bar) 6px,
+        var(--bar-dim) 6px,
+        var(--bar-dim) 12px
+      );
+    }
+    .cf-metric-pct {
+      font-size: 0.75rem;
+      color: #999;
+      min-width: 2.75rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .cf-proj-flag {
+      cursor: help;
+      font-size: 0.85rem;
+    }
     [x-cloak] {
       display: none !important;
     }
@@ -240,6 +354,11 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
 
       /* Dashboard grid: single column */
       .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+
+      /* CF pane: single column on mobile */
+      .cf-grid {
         grid-template-columns: 1fr;
       }
 

@@ -81,6 +81,7 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 - **新增帳號**：Account ID（32 hex）＋Label＋API Token＋Plan。Token 到各帳號 dash.cloudflare.com → My Profile → API Tokens → Create Custom Token，**僅 Account→Analytics: Read、單帳號 scope**；遮罩顯示、留空=保留（同 Slack/Email token 合約）
 - **自我監控**：token 失效/網路錯只在「ok→fail 轉換」時寄一則 Slack 自我警告（死 token 不會洗版）；全部帳號同時失敗才寄信
 - **成本紀律**：監控自身用量 ≈80 rows read + ≈80 rows written /poll（48 polls/day ≈ 0.08% 讀 / 3.8% 寫額度）——監控自己在 host 帳號的 `d1_rows_read/written` 曲線上是特徵不是 bug
+- **首頁雙 Tab（2026-09-11 起）**：公開首頁 `/` 以 tab 切換「服務狀態／CF 用量」——用量卡＝Label＋plan 徽章＋各指標值＋配額進度條（<60% 藍／≥60% 琥珀／≥80% 紅；投影超額＝45° 條紋＋⚠，tooltip 帶預估收盤值）；**永不顯示 32-hex Account ID**（SQL 即不選取）；tab 存 URL hash（`#status`/`#cf`）可深連結、30 秒自動刷新後停留原 tab。`/admin` CF tab 職責不變（帳號管理＋立即輪詢＋快照表）
 
 ## Zero Trust（Cloudflare Access）前置規劃
 
