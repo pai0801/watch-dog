@@ -159,6 +159,7 @@ scripts/enroll.sh my-service 我的服務
 | `/api/status` | GET | public | Get all statuses |
 | `/api/status/:projectId` | GET | public | Get project status |
 | `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
+| `/api/cf-usage` | GET | Bearer `CF_USAGE_API_TOKEN` | 唯讀 CF 用量查詢（見下節） |
 | `/admin` | GET | Basic Auth (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`) | Admin dashboard |
 
 ### CF 用量 API（供其它專案的 Claude Code／自動化使用）

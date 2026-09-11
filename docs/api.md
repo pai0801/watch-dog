@@ -275,7 +275,7 @@ Authorization: Bearer <CF_USAGE_API_TOKEN>
 }
 ```
 
-`quota`/`pct` are `null` for record-only metrics (no free-tier quota). With `detail=1`, a per-account fetch failure yields `detail_error` on that account only (HTTP stays 200). The response never contains account ids, resource ids, or token values. Usage token provisioning lives in SECRETS.md (`CF_USAGE_API_TOKEN`).
+`quota`/`pct` are `null` for record-only metrics (no free-tier quota). With `detail=1`, each account also carries `detail.groups[]` (type ∈ workers/pages/d1/kv/r2, one group per resource type) listing per-resource `items` (`name` + `metrics`); a per-account fetch failure yields `detail_error` on that account only. Status codes: 401 = missing or invalid usage token (this endpoint never returns 403), 404 = unknown `account` label, 200 = everything else (`detail=1` per-account failures surface as `detail_error`; HTTP stays 200). The response never contains account ids, resource ids, or token values. Usage token provisioning lives in SECRETS.md (`CF_USAGE_API_TOKEN`).
 
 ---
 
