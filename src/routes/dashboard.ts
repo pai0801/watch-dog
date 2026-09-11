@@ -22,10 +22,13 @@ const dashboard = new Hono<{ Bindings: AppBindings }>();
  * Always 200 — errors become an inline panel because htmx never swaps
  * non-2xx responses (a 500 would strand the placeholder text forever).
  * Label-gated and id-free by construction (ResourceDetail has no id field).
+ * Labels are capped at 100 chars: every unique label otherwise becomes a
+ * never-evicted accountByLabelCache key (per-isolate cache-spray guard).
  */
 dashboard.get('/cf-usage/detail', async (c) => {
   const label = c.req.query('label') ?? '';
   if (!label) return c.html(CfDetailError('缺少 label 參數'));
+  if (label.length > 100) return c.html(CfDetailError('label 參數過長（上限 100 字元）'));
   try {
     const detail = await getResourceDetailByLabel(c.env.DB, label);
     if (!detail) return c.html(CfDetailError(`找不到啟用中的帳號「${label}」`));

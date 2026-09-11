@@ -215,7 +215,7 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     const html = await res.text();
     expect((html.match(/site-cache/g) ?? []).length).toBe(1);
     expect(html).toContain('KiB'); // 1024 bytes → human-readable
-    expect(html).toContain('42');  // kv_ops
+    expect(html).toContain('>42<'); // kv_ops rendered standalone (timestamp HH:MM can't fake it)
   });
 
   it('NEVER leaks 32-hex ids (unresolved resources degrade to 8-char short ids)', async () => {
@@ -243,5 +243,24 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     const html = await res.text();
     expect(html).toContain('資源明細載入失敗');
     expect(html).toContain('HTTP 500');
+  });
+
+  it('guards the empty label and the over-long label (no service call)', async () => {
+    const bare = await SELF.fetch('http://localhost/cf-usage/detail');
+    expect(bare.status).toBe(200);
+    expect(await bare.text()).toContain('缺少 label 參數');
+    const long = await SELF.fetch(`http://localhost/cf-usage/detail?label=${'x'.repeat(101)}`);
+    expect(long.status).toBe(200);
+    expect(await long.text()).toContain('label 參數過長');
+  });
+
+  it('renders the empty-groups fallback when the account has zero usage today', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => HttpResponse.json({ data: { viewer: { accounts: [{}] } } }))
+    );
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('今日無任何資源用量');
   });
 });
