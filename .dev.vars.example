@@ -6,6 +6,11 @@
 ADMIN_ACCOUNT=change-me-local-account
 ADMIN_PASSWORD=change-me-local-admin
 
+# Static Bearer token for GET /api/cf-usage (read-only usage API).
+# Generate: openssl rand -hex 32 — prod value is file-sourced via
+# `wrangler secret put CF_USAGE_API_TOKEN < ~/.config/watch-dog/usage-api-token`.
+CF_USAGE_API_TOKEN=change-me-local-usage-api-token
+
 # --- Slack settings ---------------------------------------------------------
 # Settings live in the D1 settings table (configured via /admin) — the single
 # source of truth. The legacy SLACK_* env fallback was removed before the

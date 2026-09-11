@@ -32,7 +32,12 @@ describe('assertBindings (Layer 2 fail-fast, fetch entry)', () => {
     const { assertBindings } = await import('../src/lib/bindings');
     expect(() => assertBindings(emptyEnv)).toThrow(/ADMIN_ACCOUNT/);
     expect(() =>
-      assertBindings({ ...emptyEnv, ADMIN_ACCOUNT: 'x', ADMIN_PASSWORD: 'y' } as AppBindings)
+      assertBindings({
+        ...emptyEnv,
+        ADMIN_ACCOUNT: 'x',
+        ADMIN_PASSWORD: 'y',
+        CF_USAGE_API_TOKEN: 'z',
+      } as AppBindings)
     ).not.toThrow();
   });
 });

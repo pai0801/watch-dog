@@ -39,6 +39,13 @@ export interface AppBindings extends Env {
    * `wrangler secret put ADMIN_PASSWORD` (or .dev.vars locally).
    */
   ADMIN_PASSWORD?: string;
+  /**
+   * Static Bearer token guarding GET /api/cf-usage (read-only usage feed
+   * for other projects). Set via `wrangler secret put CF_USAGE_API_TOKEN`
+   * (file-sourced); value lives in ~/.config/watch-dog/usage-api-token
+   * (operator machine) and .dev.vars (sealed) — see SECRETS.md.
+   */
+  CF_USAGE_API_TOKEN?: string;
 }
 
 /**

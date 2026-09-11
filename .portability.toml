@@ -15,7 +15,7 @@ files = [".env", ".dev.vars", "docs/tokens.local.md"]
 #
 # CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID（.env）= deploy-time shell 憑證，非 worker
 # runtime binding → 不在此（alliance-member 先例），見 secrets-archive/SECRETS.md。
-worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD"]
+worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD", "CF_USAGE_API_TOKEN"]
 
 # optional_worker = runtime 會讀、但缺了不影響核心功能的 secret（10 §5.2 try* accessor 模式；
 # topreview-hotel 先例：optional 不列入 required worker 合約）。
@@ -45,6 +45,15 @@ authority = "B"
 provenance = "操作者自產 admin Basic-Auth 密碼（2026-09-05 從單一 ADMIN_TOKEN 改為帳密成對）"
 shared_across = []
 last_rotated = "2026-09-05（首次設定，值來自操作者 .env）"
+owner = "@peter"
+
+[[secrets.meta]]
+name = "CF_USAGE_API_TOKEN"
+env = "all"
+authority = "B"
+provenance = "openssl rand -hex 32（值經 ~/.config/watch-dog/usage-api-token 本機檔散佈，agent 不經手明文）"
+shared_across = []
+last_rotated = "2026-09-12（首次設定）"
 owner = "@peter"
 
 [[secrets.meta]]

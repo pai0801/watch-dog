@@ -12,6 +12,10 @@ import { extractProjectToken, authenticateProject, timingSafeEqual } from '../li
 import { clampInt, isValidCheckName, isValidProjectId } from '../lib/validate';
 import { processCheckResult } from '../services/logic';
 import { setMaintenance } from '../services/maintenance';
+import { getTodayCfUsage, METRICS, quotaFor } from '../services/cfUsage';
+import type { CfUsageData } from '../services/cfUsage';
+import { getResourceDetailByLabel } from '../services/cfResources';
+import type { ResourceDetail, ResourceGroupType } from '../services/cfResources';
 
 const api = new Hono<{ Bindings: AppBindings }>();
 
@@ -438,6 +442,127 @@ api.get('/api/status/:projectId', async (c) => {
     console.error('Status error:', error);
     return c.json({ error: 'Failed to fetch status' }, 500);
   }
+});
+
+// ============================================================================
+// GET /api/cf-usage — read-only usage feed for cross-project consumers
+// (other repos' Claude Code / automation; see README). Static Bearer token
+// (CF_USAGE_API_TOKEN), fail-closed constant-time compare. The response
+// NEVER carries account ids, api tokens, or any resource ids — labels and
+// names only (same source-level cutoff as the homepage pane).
+// ============================================================================
+
+interface ApiUsageMetric {
+  metric: string;
+  label: string;
+  value: number;
+  quota: number | null;
+  pct: number | null;
+  projected_eod: number | null;
+}
+
+/** Detail groups with resource ids stripped — ids (esp. KV namespace ids,
+ *  32 bare hex) must never reach the response; names suffice. */
+interface ApiResourceGroup {
+  type: ResourceGroupType;
+  title: string;
+  items: Array<{ name: string; metrics: Record<string, number> }>;
+}
+interface ApiResourceDetail {
+  label: string;
+  fetchedAt: number;
+  groups: ApiResourceGroup[];
+}
+interface ApiUsageAccount {
+  label: string;
+  plan: string;
+  last_polled_at: number;
+  metrics: ApiUsageMetric[];
+  /** Present only when detail=1 — null when the label stopped resolving
+   *  between calls (disabled account mid-request). */
+  detail?: ApiResourceDetail | null;
+  /** Present only when detail=1 AND this account's detail fetch failed —
+   *  one account's failure never fails the whole response. */
+  detail_error?: string;
+}
+
+const toApiDetail = (detail: ResourceDetail): ApiResourceDetail => ({
+  label: detail.label,
+  fetchedAt: detail.fetchedAt,
+  groups: detail.groups.map((g) => ({
+    type: g.type,
+    title: g.title,
+    items: g.items.map((item) => ({ name: item.name, metrics: item.metrics })),
+  })),
+});
+
+api.get('/api/cf-usage', async (c) => {
+  // Fail-closed: unset secret, missing header, or mismatch → 401. An unset
+  // secret must NEVER open the endpoint (timingSafeEqual on '' is false but
+  // the !expected guard makes the intent explicit and unconditional).
+  const expected = c.env.CF_USAGE_API_TOKEN ?? '';
+  const token = extractProjectToken(c) ?? '';
+  if (!expected || !token || !timingSafeEqual(expected, token)) {
+    return c.json({ error: 'Unauthorized: valid Bearer token required (see README CF 用量 API)' }, 401);
+  }
+
+  let usage: CfUsageData;
+  try {
+    usage = await getTodayCfUsage(c.env.DB);
+  } catch (error) {
+    console.error('cf-usage API error:', error);
+    return c.json({ error: 'Failed to load usage data' }, 500);
+  }
+
+  const labelFilter = c.req.query('account');
+  if (labelFilter) {
+    const filtered = usage.accounts.filter((a) => a.label === labelFilter);
+    if (filtered.length === 0) {
+      return c.json({ error: `Unknown account label: ${labelFilter}` }, 404);
+    }
+    usage = { ...usage, accounts: filtered };
+  }
+
+  const wantDetail = c.req.query('detail') === '1';
+  const accounts: ApiUsageAccount[] = [];
+  for (const card of usage.accounts) {
+    const metrics: ApiUsageMetric[] = card.metrics.map((row) => {
+      const quota = quotaFor(row.metric, card.plan);
+      return {
+        metric: row.metric,
+        label: METRICS[row.metric]?.label ?? row.metric,
+        value: row.value,
+        quota: quota > 0 ? quota : null,
+        pct: quota > 0 ? Math.round((row.value / quota) * 1000) / 10 : null,
+        projected_eod: row.projected_eod,
+      };
+    });
+    const entry: ApiUsageAccount = {
+      label: card.label,
+      plan: card.plan,
+      last_polled_at: card.last_ok_at,
+      metrics,
+    };
+    if (wantDetail) {
+      entry.detail = null;
+      try {
+        // card.label (DB-sourced), NEVER the ?account= query param — a
+        // caller-controlled label would bypass the 100-char label cap that
+        // guards the label→account cache (cache-spray vector, Task 6 review).
+        const detail = await getResourceDetailByLabel(c.env.DB, card.label);
+        entry.detail = detail ? toApiDetail(detail) : null;
+      } catch (error) {
+        entry.detail_error = error instanceof Error ? error.message : String(error);
+      }
+    }
+    accounts.push(entry);
+  }
+
+  return c.json({
+    generated_at: Math.floor(Date.now() / 1000),
+    quota_reset: 'UTC 00:00 (Taipei 08:00)',
+    accounts,
+  });
 });
 
 export default api;

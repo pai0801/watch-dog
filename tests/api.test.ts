@@ -3,13 +3,22 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network';
+import { resetResourceCaches } from '../src/services/cfResources';
 import {
   DB,
+  cfD1ListUrl,
+  cfKvListUrl,
   getCheck,
   getProject,
   resetDb,
   seedCheck,
+  seedCfAccount,
   seedProject,
+  seedResourceName,
+  TEST_CF,
+  TEST_USAGE_API_TOKEN,
 } from './utils';
 
 const TOKEN = 'test-token-1234567890';
@@ -345,5 +354,148 @@ describe('GET /api/status', () => {
   it('returns 404 for an unknown project', async () => {
     const res = await SELF.fetch('http://localhost/api/status/ghost');
     expect(res.status).toBe(404);
+  });
+});
+
+// ============================================================================
+// GET /api/cf-usage (Task 8)
+// ============================================================================
+
+interface UsageMetricShape {
+  metric: string;
+  label: string;
+  value: number;
+  quota: number | null;
+  pct: number | null;
+  projected_eod: number | null;
+}
+interface UsageAccountShape {
+  label: string;
+  plan: string;
+  last_polled_at: number;
+  metrics: UsageMetricShape[];
+  detail?: { groups: Array<{ type: string; items: Array<{ name: string; metrics: Record<string, number> }> }> } | null;
+  detail_error?: string;
+}
+
+/** cf_usage_state row for today (the API reads day_utc = now, like the pane). */
+async function seedUsageRow(accountId: string, metric: string, value: number, projectedEod: number | null = null) {
+  const today = new Date().toISOString().slice(0, 10);
+  await DB.prepare(
+    'INSERT INTO cf_usage_state (day_utc, account_id, metric, value, projected_eod, alerted_level) VALUES (?, ?, ?, ?, ?, 0)'
+  )
+    .bind(today, accountId, metric, value, projectedEod)
+    .run();
+}
+
+describe('GET /api/cf-usage', () => {
+  const auth = { Authorization: `Bearer ${TEST_USAGE_API_TOKEN}` };
+
+  beforeEach(async () => {
+    resetResourceCaches();
+    network.use(
+      http.post(TEST_CF.gqlUrl, () =>
+        HttpResponse.json({
+          data: {
+            viewer: {
+              accounts: [
+                {
+                  wkr: [{ dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1500, errors: 2 } }],
+                  d1: [{ dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } }],
+                },
+              ],
+            },
+          },
+        })
+      ),
+      http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json({ success: true, result: [] })),
+      http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json({ success: true, result: [] }))
+    );
+  });
+
+  it('rejects requests without a token (401, fail-closed)', async () => {
+    const res = await SELF.fetch('http://localhost/api/cf-usage');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects a wrong token (401)', async () => {
+    const res = await SELF.fetch('http://localhost/api/cf-usage', {
+      headers: { Authorization: 'Bearer wrong-token-value' },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns per-account metrics with quota/pct and sorts by max ratio desc', async () => {
+    await seedCfAccount({ label: 'Low Use' });
+    await seedUsageRow(TEST_CF.accountId, 'd1_rows_read', 1_000_000); // 20%
+    // record-only metric: value stored/displayed, quota and pct null
+    await seedUsageRow(TEST_CF.accountId, 'workers_errors', 7);
+    await seedCfAccount({ account_id: TEST_CF.accountIdB, api_token: TEST_CF.tokenB, label: 'High Use' });
+    await seedUsageRow(TEST_CF.accountIdB, 'd1_rows_written', 90_000); // 90%
+
+    const res = await SELF.fetch('http://localhost/api/cf-usage', { headers: auth });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ generated_at: number; quota_reset: string; accounts: UsageAccountShape[] }>();
+    expect(body.quota_reset).toContain('UTC 00:00');
+    expect(body.accounts.map((a) => a.label)).toEqual(['High Use', 'Low Use']);
+
+    const read = body.accounts[1].metrics.find((m) => m.metric === 'd1_rows_read');
+    expect(read?.quota).toBe(5_000_000);
+    expect(read?.pct).toBe(20);
+    const errs = body.accounts[1].metrics.find((m) => m.metric === 'workers_errors');
+    expect(errs?.quota).toBeNull(); // record-only metric
+    expect(errs?.pct).toBeNull();
+  });
+
+  it('filters by account label and 404s unknown labels', async () => {
+    await seedCfAccount();
+    await seedUsageRow(TEST_CF.accountId, 'd1_rows_read', 1);
+    const ok = await SELF.fetch('http://localhost/api/cf-usage?account=Test%20Account', { headers: auth });
+    expect(ok.status).toBe(200);
+    const body = await ok.json<{ accounts: UsageAccountShape[] }>();
+    expect(body.accounts).toHaveLength(1);
+    expect(body.accounts[0].label).toBe('Test Account');
+
+    const missing = await SELF.fetch('http://localhost/api/cf-usage?account=ghost', { headers: auth });
+    expect(missing.status).toBe(404);
+  });
+
+  it('detail=1 carries named groups, strips ids, and degrades a failing account alone', async () => {
+    await seedCfAccount({ label: 'Good' });
+    await seedUsageRow(TEST_CF.accountId, 'd1_rows_read', 1);
+    await seedCfAccount({ account_id: TEST_CF.accountIdB, api_token: TEST_CF.tokenB, label: 'Bad' });
+    await seedUsageRow(TEST_CF.accountIdB, 'd1_rows_read', 1);
+    await seedResourceName(TEST_CF.accountId, 'd1', '11111111-2222-3333-4444-555555555555', 'Production DB');
+    network.use(
+      http.post(TEST_CF.gqlUrl, ({ request }) =>
+        request.headers.get('Authorization') === `Bearer ${TEST_CF.tokenB}`
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json({
+              data: {
+                viewer: {
+                  accounts: [
+                    {
+                      wkr: [{ dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1500, errors: 2 } }],
+                      d1: [{ dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } }],
+                    },
+                  ],
+                },
+              },
+            })
+      )
+    );
+
+    const res = await SELF.fetch('http://localhost/api/cf-usage?detail=1', { headers: auth });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ accounts: UsageAccountShape[] }>();
+    const good = body.accounts.find((a) => a.label === 'Good');
+    expect(good?.detail?.groups.length).toBeGreaterThan(0);
+    expect(good?.detail?.groups[0].items[0].name).toBe('watch-dog');
+    const bad = body.accounts.find((a) => a.label === 'Bad');
+    expect(bad?.detail_error).toContain('HTTP 500');
+    expect(bad?.detail).toBeNull();
+    // security: no 32-hex run anywhere in the serialized response (resource
+    // ids are stripped at the API boundary — names only)
+    expect(JSON.stringify(body).match(/[0-9a-f]{32}/)).toBeNull();
   });
 });
