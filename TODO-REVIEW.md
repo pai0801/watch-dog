@@ -12,6 +12,7 @@
 > #7 見 042c8d2＋末輪收斂；#8 見 f4b47cd）。#17/#18 為 2026-09-05 首次部署後線上實測發現的新債，同日清償。
 > #19 為 2026-09-10 警報對稱化輪發現的 ok-pulse 併發 race，同日清償。
 > #20/#21 為 2026-09-12 對外用量 API 輪（Task 8 quality review）發現的 pre-existing 債，待排程。
+> #22 為同輪 Task 9 quality review 發現的既有文件矛盾（docs/api.md /admin 認證描述過時），待排程。
 > 表列 row 保留為歷史記錄，處置細節見各 commit 與 FIX-LOG 條目。
 
 | # | 位置 | 違反/偏離 | 處置建議 | 狀態 |
@@ -37,6 +38,7 @@
 | 19 | `src/services/logic.ts` ok 路徑 UPDATE（status/failure_count 覆寫） | ~~併發 race：同秒多 pulse 交錯時，持舊快照的 ok pulse 無條件覆寫 `status='ok', failure_count=0`（無 CAS），可洗掉剛寫入的 error 狀態——2026-09-10 事件 04:15→04:16 可觀測實證~~ | ok 轉移加 CAS（`WHERE failure_count = ?` 快照比對）；敗者**不重試**、降級為只推進 `last_seen`＋記 log（pulse 必須留痕——不變式 ①），error 狀態存活到下一個不與 error 競速的乾淨 ok pulse 才執行恢復轉移（與 fix A episode 哲學一致） | **已清償 2026-09-10**（見 FIX-LOG 同日第二則；回歸測試×2） |
 | 20 | `src/lib/auth.ts:14-25` `timingSafeEqual` wrapper | 只 guard UTF-16 `a.length !== b.length` 就把 UTF-8 buffers 交給 `crypto.subtle.timingSafeEqual`（要求**位元組**長度相等）——與 secret 同 UTF-16 長度的多位元組 token（如 `têst-…`）觸發 TypeError → Hono 500。**非 bypass**（500 ≠ 認證通過，fail-closed 語義完好），但未認證輸入可在所有共用此 helper 的 Bearer 端點（`/api/config`、`/api/pulse`、`/api/cf-usage`）觸發 500；secret 長度（64-hex）易猜。2026-09-12 Task 8 quality review 實驗證實（dev-brain id 56f51f998840） | wrapper 內先 `TextEncoder` 編碼兩字串、`byteLength` 不等提前 `return false`（約 3 行）；補一條多位元組 token → 401（非 500）回歸測試 | 待排程（本輪發現，未修——存量債不順手改；修復時一併覆蓋三端點） |
 | 21 | `cf_accounts.label`（`src/db.sql`＋`src/routes/admin.ts` 帳號建立） | label 無唯一性約束（schema 層）也無 admin 端檢查——兩個 enabled 帳號共用 label 時，`getTodayCfUsage` 的 `ORDER BY a.label` 分組把它們合併成一張卡：首頁顯示交錯重複指標列；API 回應單一「帳號」帶兩帳號的 metrics（machine consumer 以 metric 為 key 會 last-wins 歧義）；`detail=1` 解析到 `created_at` 最先者。2026-09-12 Task 8 quality review 實驗證實（回應 200 無 crash，行為「sane」但語義模糊） | admin 端建立/編輯時 server-side label 唯一性檢查（一行 `SELECT 1 FROM cf_accounts WHERE label = ? AND account_id != ?`）；或 schema `UNIQUE`（需 migration，成本較高）；文件面 Task 9 已註明 label 為身分、務必唯一 | 待排程（首頁既有行為，非本輪引入；單操作者系統實務風險低——操作者自己建帳號） |
+| 22 | `docs/api.md:18-19` /admin 認證描述 | 仍寫 /admin 使用 `ADMIN_TOKEN` secret、username ignored——與全域矛盾：實際為 `ADMIN_ACCOUNT`/`ADMIN_PASSWORD` Basic Auth 對（`secrets-archive/SECRETS.md`、adminAuth 實作、README API Endpoints 表均為 Basic Auth；ADMIN_TOKEN 列已在 SECRETS.md 劃線除役）。2026-09-12 Task 9 quality review 發現（pre-existing，非該 commit 引入） | 改寫該兩行為 Basic Auth（`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`）描述，移除 ADMIN_TOKEN 殘句 | 待排程（文件債，零行為影響——/admin 實際認證正確，僅文件誤導讀者） |
 
 ## 複本盤點確認非債項（避免重複調查）
 
