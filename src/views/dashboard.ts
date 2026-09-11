@@ -4,7 +4,7 @@
 import { html } from 'hono/html';
 import type { Check, Project } from '../types';
 import { METRICS, quotaFor } from '../services/cfUsage';
-import type { CfPlanId } from '../services/cfUsage';
+import type { CfAccountCardData, CfMetricRowData, CfPlanId, CfUsageData } from '../services/cfUsage';
 import { fmtMetricValue } from '../lib/format';
 
 /**
@@ -113,42 +113,6 @@ export const ProjectGrid = (projectsWithChecks: Array<Parameters<typeof ProjectC
         ${projectsWithChecks.map(p => ProjectCard(p))}
       </div>
     `;
-
-/** One metric line of the homepage CF pane (cf_usage_state columns minus the
- *  account identity — account_id is intentionally absent end to end). */
-export interface CfMetricRowData {
-  metric: string;
-  value: number;
-  projected_eod: number | null;
-  alerted_level: number;
-}
-
-/** Per-account card: label + plan + today's metric rows. */
-export interface CfAccountCardData {
-  label: string;
-  plan: CfPlanId;
-  last_ok_at: number;
-  metrics: CfMetricRowData[];
-}
-
-/** Everything the CF pane renders (the route groups flat JOIN rows into this). */
-export interface CfUsageData {
-  accounts: CfAccountCardData[];
-  lastPolledAt: number;
-}
-
-/** Flat JOIN row the route reads. The SELECT list omits account_id on
- *  purpose — the homepage must never render it (see tests/dashboard.test.ts). */
-export interface CfUsageRow {
-  metric: string;
-  value: number;
-  projected_eod: number | null;
-  alerted_level: number;
-  updated_at: number;
-  label: string;
-  plan: CfPlanId;
-  last_ok_at: number;
-}
 
 /** One metric line: name | value, then bar + pct when the metric has a quota.
  *  Bar color is status (plain <60% / amber >=60% / red >=80%) — the printed

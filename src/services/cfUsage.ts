@@ -221,6 +221,109 @@ export function classifyMetric(
   return { level, pct, projected, projectedPct, etaSecondsFromNow };
 }
 
+// ===== Homepage CF pane data (moved from routes/dashboard.ts 2026-09-12;
+// second caller = the usage API — grouping/derivation lives in one place) =====
+
+/** One metric line of the homepage CF pane (cf_usage_state columns minus the
+ *  account identity — account_id is intentionally absent end to end). */
+export interface CfMetricRowData {
+  metric: string;
+  value: number;
+  projected_eod: number | null;
+  alerted_level: number;
+}
+
+/** Per-account card: label + plan + today's metric rows, plus the collapsed
+ *  face derivations. */
+export interface CfAccountCardData {
+  label: string;
+  plan: CfPlanId;
+  last_ok_at: number;
+  metrics: CfMetricRowData[];
+  /** Metric row with the highest value/quota ratio (quota-less rows rank 0);
+   *  undefined when no metric has a quota (or metrics is empty) — the view
+   *  falls back to the first row. */
+  topMetric?: CfMetricRowData;
+  /** Highest ratio across the account's metrics (0 when none have quotas). */
+  maxRatio: number;
+  /** Metrics at or above WARN_THRESHOLD (the amber chip count). */
+  warnCount: number;
+}
+
+/** Everything the CF pane renders — accounts sorted by maxRatio desc
+ *  (label asc tiebreak). */
+export interface CfUsageData {
+  accounts: CfAccountCardData[];
+  lastPolledAt: number;
+}
+
+/** Flat JOIN row. The SELECT list omits account_id on purpose — the homepage
+ *  is public and the 32-hex id must never reach the response (source-level
+ *  cutoff, not front-end masking — it is joined on, never read out; see
+ *  tests/dashboard.test.ts). */
+export interface CfUsageRow {
+  metric: string;
+  value: number;
+  projected_eod: number | null;
+  alerted_level: number;
+  updated_at: number;
+  label: string;
+  plan: CfPlanId;
+  last_ok_at: number;
+}
+
+/** Today's per-account usage: query, group flat rows into cards, derive the
+ *  collapsed-face fields (topMetric/maxRatio/warnCount), sort by maxRatio
+ *  desc (label asc). account_id never selected — public surface. */
+export async function getTodayCfUsage(db: D1Database): Promise<CfUsageData> {
+  const usage = await db
+    .prepare(
+      `SELECT s.metric, s.value, s.projected_eod, s.alerted_level, s.updated_at,
+              a.label, a.plan, a.last_ok_at
+       FROM cf_usage_state s JOIN cf_accounts a ON a.account_id = s.account_id
+       WHERE s.day_utc = date('now') AND a.enabled = 1
+       ORDER BY a.label, s.metric`
+    )
+    .all<CfUsageRow>();
+
+  // Rows arrive sorted by label so a label change starts a new card (labels
+  // are the operator's per-account names — unique in practice for this
+  // single-operator system); metric order follows the METRICS registry.
+  const order = Object.keys(METRICS);
+  const accounts: CfAccountCardData[] = [];
+  for (const row of usage.results) {
+    let card = accounts[accounts.length - 1];
+    if (!card || card.label !== row.label) {
+      card = { label: row.label, plan: row.plan, last_ok_at: row.last_ok_at, metrics: [], maxRatio: 0, warnCount: 0 };
+      accounts.push(card);
+    }
+    card.metrics.push({
+      metric: row.metric,
+      value: row.value,
+      projected_eod: row.projected_eod,
+      alerted_level: row.alerted_level,
+    });
+  }
+  for (const card of accounts) {
+    card.metrics.sort((a, b) => order.indexOf(a.metric) - order.indexOf(b.metric));
+    for (const row of card.metrics) {
+      const quota = quotaFor(row.metric, card.plan);
+      if (quota <= 0) continue;
+      const ratio = row.value / quota;
+      if (ratio >= WARN_THRESHOLD) card.warnCount++;
+      if (ratio > card.maxRatio) {
+        card.maxRatio = ratio;
+        card.topMetric = row;
+      }
+    }
+  }
+  accounts.sort((a, b) => b.maxRatio - a.maxRatio || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  return {
+    accounts,
+    lastPolledAt: accounts.reduce((max, a) => Math.max(max, a.last_ok_at), 0),
+  };
+}
+
 // ===== GraphQL fetch + parse =====
 
 interface GqlGroup {
