@@ -30,6 +30,7 @@
 import { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { dispatchAlert } from './alert';
 import type { SlackAlertData } from './alert';
+import { refreshResourceNamesIfNeeded } from './cfResources';
 
 const CF_GRAPHQL_URL = 'https://api.cloudflare.com/client/v4/graphql';
 
@@ -496,6 +497,17 @@ export async function pollCfUsage(db: D1Database, nowMs: number = Date.now()): P
         .prepare('UPDATE cf_accounts SET last_error = ? WHERE account_id = ?')
         .bind(reason.slice(0, 500), account.account_id)
         .run();
+    }
+  }
+
+  // Daily per-type name refresh for the detail fragment (cfResources.ts).
+  // Best-effort by design: a name-refresh failure never alters the poll
+  // summary or the alert paths — unresolved names degrade to short ids.
+  for (const account of accounts) {
+    try {
+      await refreshResourceNamesIfNeeded(db, account, nowMs);
+    } catch (error) {
+      console.error(`[cf-usage] name refresh failed for ${account.label}:`, error);
     }
   }
 

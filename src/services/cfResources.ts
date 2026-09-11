@@ -241,6 +241,9 @@ const CF_GRAPHQL_URL = 'https://api.cloudflare.com/client/v4/graphql';
  *  upstream calls/account/day no matter what). */
 export const CACHE_TTL_MS = 300_000;
 
+/** Name refresh gate: per (account, resource_type) at most daily. */
+export const NAME_REFRESH_INTERVAL_SEC = 86_400;
+
 /** account label -> CfAccount | null. Null (unknown/disabled) is cached too:
  *  repeated lookups of a bad label must not hit D1 every request. */
 const accountByLabelCache = new Map<string, { at: number; account: CfAccount | null }>();
@@ -344,4 +347,105 @@ export async function getResourceDetailByLabel(
   const detail = parseResourceDetail(label, node, names, Math.floor(nowMs / 1000));
   detailCache.set(account.account_id, { at: nowMs, detail });
   return detail;
+}
+
+// ===== daily name refresh (REST lists → cf_resource_names) =====
+
+/** Verified 2026-09-11 with the existing Analytics-scoped tokens on both
+ *  probed accounts — no re-mint needed. A 403 here only means unresolved
+ *  names degrade to short ids, never a poll failure. */
+const CF_REST_BASE = 'https://api.cloudflare.com/client/v4';
+
+interface RestListEnvelope {
+  success?: boolean;
+  result?: Array<Record<string, unknown>> | null;
+}
+
+async function fetchRestList(account: CfAccount, path: string): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(`${CF_REST_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${account.api_token}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    const hint =
+      response.status === 401 || response.status === 403
+        ? ' — token invalid or lacks list permission'
+        : '';
+    throw new Error(`HTTP ${response.status}${hint}`);
+  }
+  const body = (await response.json()) as RestListEnvelope;
+  if (body.success !== true || !Array.isArray(body.result)) {
+    throw new Error('unexpected REST list envelope');
+  }
+  return body.result;
+}
+
+async function fetchD1Names(account: CfAccount): Promise<Array<{ id: string; name: string }>> {
+  const result = await fetchRestList(account, `/accounts/${account.account_id}/d1/database?per_page=100`);
+  return result
+    .map((r) => ({ id: String(r.uuid ?? ''), name: String(r.name ?? '') }))
+    .filter((r) => r.id !== '' && r.name !== '');
+}
+
+async function fetchKvNames(account: CfAccount): Promise<Array<{ id: string; name: string }>> {
+  const result = await fetchRestList(account, `/accounts/${account.account_id}/storage/kv/namespaces?per_page=100`);
+  return result
+    .map((r) => ({ id: normalizeNsId(String(r.id ?? '')), name: String(r.title ?? '') }))
+    .filter((r) => r.id !== '' && r.name !== '');
+}
+
+/** Refresh cf_resource_names for one account — at most daily per type,
+ *  per-type independent (a 403 on one endpoint never skips the other).
+ *  Throws when a due side fails (the poller hook logs it); an account with
+ *  zero resources of a type re-queries that list every poll — the gate
+ *  never satisfies with no rows — costing 2 free read-only calls, accepted.
+ *  Replace-set: rows absent from the list are removed via a static
+ *  timestamp DELETE (§B guard forbids dynamic IN lists). */
+export async function refreshResourceNamesIfNeeded(
+  db: D1Database,
+  account: CfAccount,
+  nowMs: number
+): Promise<void> {
+  const nowSec = Math.floor(nowMs / 1000);
+  const rows = await db
+    .prepare(
+      'SELECT resource_type, MAX(updated_at) AS m FROM cf_resource_names WHERE account_id = ? GROUP BY resource_type'
+    )
+    .bind(account.account_id)
+    .all<{ resource_type: string; m: number }>();
+  const lastByType = new Map((rows.results ?? []).map((r) => [r.resource_type, r.m]));
+
+  const errors: string[] = [];
+  const sides: Array<{ type: NameResourceType; fetch: () => Promise<Array<{ id: string; name: string }>> }> = [
+    { type: 'd1', fetch: () => fetchD1Names(account) },
+    { type: 'kv', fetch: () => fetchKvNames(account) },
+  ];
+  for (const side of sides) {
+    if ((lastByType.get(side.type) ?? 0) > nowSec - NAME_REFRESH_INTERVAL_SEC) continue;
+    try {
+      const list = await side.fetch();
+      const statements = list.map((r) =>
+        db
+          .prepare(
+            `INSERT INTO cf_resource_names (account_id, resource_type, resource_id, name, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (account_id, resource_type, resource_id) DO UPDATE SET
+               name = excluded.name, updated_at = excluded.updated_at`
+          )
+          .bind(account.account_id, side.type, r.id, r.name, nowSec)
+      );
+      // every upsert above stamps nowSec, so only stale rows predate it
+      statements.push(
+        db
+          .prepare('DELETE FROM cf_resource_names WHERE account_id = ? AND resource_type = ? AND updated_at < ?')
+          .bind(account.account_id, side.type, nowSec)
+      );
+      await db.batch(statements);
+    } catch (error) {
+      errors.push(`${side.type}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (errors.length > 0) {
+    throw new Error(`name refresh failed (${errors.join('; ')})`);
+  }
 }

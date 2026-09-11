@@ -10,10 +10,13 @@ import { network } from './network';
 import {
   CF_TEST_NOW,
   DB,
+  cfD1ListUrl,
+  cfKvListUrl,
   getCfAccount,
   getUsageState,
   resetDb,
   seedCfAccount,
+  seedResourceName,
   setEmailSettings,
   setSlackSettings,
   TEST_CF,
@@ -61,6 +64,10 @@ const usageFixture = (v: {
 /** Empty accounts node → "token not scoped" failure mode. */
 const EMPTY_ACCOUNTS = { data: { viewer: { accounts: [] } } };
 
+/** Empty REST list — the default name-refresh response for every account
+ *  (the poller hook hits these lists whenever the daily gate is open). */
+const REST_EMPTY = { success: true, result: [] };
+
 let gqlHits: string[] = [];
 let slackPosts: Array<{ channel: string; body: string }> = [];
 let emailPosts: Array<{ subject: string }> = [];
@@ -80,6 +87,13 @@ beforeEach(async () => {
   slackPosts = [];
   emailPosts = [];
   network.use(
+    // REST name-refresh defaults for both test accounts — without these the
+    // poller hook would hit the real network in every poll test. Registered
+    // before the gql handlers; per-test overrides still win (msw is LIFO).
+    http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfD1ListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfKvListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY)),
     // Default catch-all: zero usage for any token. Tests override with
     // network.use (msw runtime handlers are LIFO).
     http.post(TEST_CF.gqlUrl, async ({ request }) => {
@@ -412,5 +426,81 @@ describe('pollCfUsage — failure handling', () => {
     network.use(http.post(TEST_CF.gqlUrl, () => HttpResponse.json(EMPTY_ACCOUNTS)));
     const withEmpty = await pollCfUsage(DB, CF_TEST_NOW);
     expect(withEmpty.failures[0]?.error).toContain('empty viewer.accounts');
+  });
+});
+
+describe('resource name refresh (poller hook)', () => {
+  it('refreshes d1 names once per day: poll → rows written → second poll no re-fetch', async () => {
+    await seedCfAccount();
+    let d1Hits = 0;
+    network.use(
+      http.get(cfD1ListUrl(TEST_CF.accountId), () => {
+        d1Hits++;
+        return HttpResponse.json({
+          success: true,
+          result: [{ uuid: '11111111-2222-3333-4444-555555555555', name: 'Production DB' }],
+        });
+      })
+    );
+    await pollCfUsage(DB, CF_TEST_NOW);
+    expect(d1Hits).toBe(1);
+    const rows = await DB.prepare(
+      "SELECT resource_id, name FROM cf_resource_names WHERE account_id = ? AND resource_type = 'd1'"
+    ).bind(TEST_CF.accountId).all<{ resource_id: string; name: string }>();
+    expect(rows.results).toEqual([{ resource_id: '11111111-2222-3333-4444-555555555555', name: 'Production DB' }]);
+    await pollCfUsage(DB, CF_TEST_NOW + 60_000);
+    expect(d1Hits).toBe(1); // gate satisfied — no re-fetch within the day
+  });
+
+  it('replace-set: a resource absent from the list is deleted (static DELETE, §B-safe)', async () => {
+    await seedCfAccount();
+    // stale row older than the refresh gate (CF_TEST_NOW-anchored)
+    await seedResourceName(TEST_CF.accountId, 'd1', 'old-uuid', 'Old DB', Math.floor(CF_TEST_NOW / 1000) - 2 * 86_400);
+    network.use(
+      http.get(cfD1ListUrl(TEST_CF.accountId), () =>
+        HttpResponse.json({ success: true, result: [{ uuid: '11111111-2222-3333-4444-555555555555', name: 'Production DB' }] })
+      )
+    );
+    await pollCfUsage(DB, CF_TEST_NOW);
+    const rows = await DB.prepare(
+      "SELECT resource_id FROM cf_resource_names WHERE account_id = ? AND resource_type = 'd1'"
+    ).bind(TEST_CF.accountId).all<{ resource_id: string }>();
+    expect(rows.results.map((r) => r.resource_id)).toEqual(['11111111-2222-3333-4444-555555555555']);
+  });
+
+  it('kv names are stored with normalized bare-hex ids', async () => {
+    await seedCfAccount();
+    network.use(
+      http.get(cfKvListUrl(TEST_CF.accountId), () =>
+        HttpResponse.json({ success: true, result: [{ id: 'ABCDEF01-2345-6789-abcd-ef0123456789', title: 'site-cache' }] })
+      )
+    );
+    await pollCfUsage(DB, CF_TEST_NOW);
+    const rows = await DB.prepare(
+      "SELECT resource_id FROM cf_resource_names WHERE account_id = ? AND resource_type = 'kv'"
+    ).bind(TEST_CF.accountId).all<{ resource_id: string }>();
+    expect(rows.results.map((r) => r.resource_id)).toEqual(['abcdef0123456789abcdef0123456789']);
+  });
+
+  it('a 403 on one REST list degrades alone: poll summary unaffected, no failure entry', async () => {
+    await seedCfAccount();
+    network.use(http.get(cfD1ListUrl(TEST_CF.accountId), () => new HttpResponse(null, { status: 403 })));
+    const summary = await pollCfUsage(DB, CF_TEST_NOW);
+    expect(summary.polled).toBe(1);
+    expect(summary.failures).toHaveLength(0); // usage poll itself succeeded
+  });
+
+  it('skips refresh entirely while the daily gate holds (no REST traffic)', async () => {
+    await seedCfAccount();
+    // fresh row written "now-anchored at CF_TEST_NOW" → gate satisfied for both types
+    await seedResourceName(TEST_CF.accountId, 'd1', 'x', 'x', Math.floor(CF_TEST_NOW / 1000));
+    await seedResourceName(TEST_CF.accountId, 'kv', 'y', 'y', Math.floor(CF_TEST_NOW / 1000));
+    let restHits = 0;
+    network.use(
+      http.get(cfD1ListUrl(TEST_CF.accountId), () => { restHits++; return HttpResponse.json({ success: true, result: [] }); }),
+      http.get(cfKvListUrl(TEST_CF.accountId), () => { restHits++; return HttpResponse.json({ success: true, result: [] }); })
+    );
+    await pollCfUsage(DB, CF_TEST_NOW + 60_000);
+    expect(restHits).toBe(0);
   });
 });
