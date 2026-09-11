@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-11] 首頁 CF 用量雙 Tab 儀表板——公開巡查但不洩 Account ID
+
+**目標**：操作者要求 CF 用量上首頁美化呈現（`https://watch-dog.helperp.workers.dev/` 雙 Tab「服務狀態／CF 用量」；`/admin` 維持設定職責不退場）。
+**原因**：非修復——功能新增（spec/plan：`docs/plans/2026-09-11-cf-usage-homepage-dashboard-plan.md`，tier major 全 gate）。設計決策經操作者批准：公開但藏 Account ID、雙 Tab 切換。
+**預期結果**：GET / 雙 Tab——服務狀態 pane 原封（stats＋30s htmx 輪詢 grid）；CF 用量 pane＝每帳號一卡（Label＋plan 徽章＋9 指標：值＋配額進度條，<60% 藍／≥60% 琥珀／≥80% 紅；counter 投影超額＝45° 條紋＋⚠，tooltip 帶預估收盤值；無配額指標值-only 無 bar；bytes 走 B/KiB/MiB/GiB）。**安全不變式：32-hex Account ID 永不出現在公開 HTML**——SQL SELECT 清單即不含 account_id（源頭斷，非前端遮罩；JOIN 用但不選出），測試雙護欄（特定 seed id `not.toContain`＋泛型 `/[0-9a-f]{32}/` 全文 regex）。CF 查詢獨立 try/catch——CF 端故障只降級自身 pane（與 cron poller 同隔離哲學）；tab 存 URL hash（`#status`/`#cf`）可深連結，30s reload 由 hash 還原原 tab。附帶根治：舊 reload 條件 `hash === ''` 在 tab hash 下會凍結刷新——改無條件 reload。唯一實作收斂：`fmtMetricValue` 抽 `src/lib/format.ts`、`quotaFor` 進 cfUsage registry 模組（poller/admin/首頁三端共用）。色階經 dataviz 驗證器實跑（deutan ΔE 13.7 PASS、對比 ≥3:1 PASS，surface #1a1a19/#242424）；% 數字恆以中性墨印刷（非 color-alone）、投影用條紋紋理二級編碼。
+**範圍**：8 檔——`src/lib/format.ts`（新）、`src/services/cfUsage.ts`（+quotaFor）、`src/views/adminViews.ts`（改用共用 helper，快照表結構不變）、`src/routes/dashboard.ts`（CF JOIN 查詢＋groupCfUsage＋獨立 try/catch）、`src/views/dashboard.ts`（CF pane 組件＋雙 Tab 殼）、`src/views/layout.ts`（CF CSS＋mobile 單欄）、`tests/utils.ts`（reapplySchema——DROP TABLE 破壞性測試後還原）、`tests/dashboard.test.ts`（新 7 案：雙 tab/零洩漏/色階/投影/無配額/空狀態/故障隔離；class 斷言錨定屬性形式避開頁內 style 塊 selector 误計）。`docs/usage.md`＋1 bullet。無 schema／無 secret 變動。
+**驗證**：`make ci` 全綠（tsc ✓ / lint 0 warning ✓ / app pool **141/141** ✓ / guards 21/21 ✓ / §L ✓ / §M 僅已知 legacy warns）。§3.1 手追六項（SELECT 清單無 id／色階 pct 推導／投影條件／隔離邊界／quota=0 分支／isHtmx 與 admin 路徑不變）。本地渲染目檢（wrangler dev＋seed 9 指標各態）：deep link `#cf` 直落 CF tab、tab 點擊 hash 同步、條紋＋⚠ 明確、無 32-hex。部署（version `9761fdb9`，操作者批准）線上探測：**32-hex 洩漏 = 0**（8 真實帳號在庫）、`class="cf-account-card"` = 8、雙 tab 字串俱在、`cf-projected` 條紋 2 列（真實投影資料）；8 帳號 labels（gui/helperp/markpai0801/mbti.with.m/murmurnoteapp/paipeter/photo/s58）全渲染且皆非 id。註：首發 curl 撿到 edge stale 回應，cache-bust 後即新版。
+
 ### [2026-09-11] admin CSRF guard header 名根治——X-HX-Request（不存在的 header）改為 HX-Request（htmx 實際預設），靜默 407 天的 htmx 表單全線復活
 
 **目標**：操作者於 /admin → CF 用量 tab 新增帳號，「無錯誤提示但儲存無動作」——htmx 表單 POST 全部靜默失敗。
