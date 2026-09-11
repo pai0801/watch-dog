@@ -22,6 +22,7 @@ import {
   TEST_CF,
   TEST_EMAIL,
   TEST_SLACK,
+  useRestNameDefaults,
 } from './utils';
 
 const ADMIN_ACCOUNT = 'test-admin';
@@ -32,6 +33,9 @@ const XHR = { 'X-Requested-With': 'XMLHttpRequest' };
 
 beforeEach(async () => {
   await resetDb();
+  // The run-endpoint test triggers the name-refresh hook — REST defaults
+  // keep those fetches off the real network.
+  useRestNameDefaults();
 });
 
 describe('GET /admin — Basic Auth gate', () => {

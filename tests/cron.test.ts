@@ -17,6 +17,7 @@ import {
   setSlackSettings,
   TEST_CF,
   TEST_ENV,
+  useRestNameDefaults,
 } from './utils';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -44,6 +45,9 @@ beforeEach(async () => {
   await resetDb();
   await setSlackSettings();
   slackBodies = [];
+  // The aligned CF poll test triggers the name-refresh hook — REST defaults
+  // keep those fetches off the real network.
+  useRestNameDefaults();
   network.use(
     http.post('https://slack.com/api/chat.postMessage', async ({ request }) => {
       slackBodies.push(await request.text());

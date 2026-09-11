@@ -2,9 +2,11 @@
 // Shared fixtures: schema bootstrap + D1 seed/reset helpers.
 
 import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import schemaSql from '../src/db.sql?raw';
 import type { Check, Env, Project } from '../src/types';
 import type { CfAccount } from '../src/services/cfUsage';
+import { network } from './network';
 
 export const DB = env.DB as unknown as D1Database;
 
@@ -264,6 +266,22 @@ export async function seedResourceName(
 export const CF_REST_BASE = 'https://api.cloudflare.com/client/v4';
 export const cfD1ListUrl = (accountId: string): string => `${CF_REST_BASE}/accounts/${accountId}/d1/database`;
 export const cfKvListUrl = (accountId: string): string => `${CF_REST_BASE}/accounts/${accountId}/storage/kv/namespaces`;
+
+/** Empty REST list — the default name-refresh response. */
+const REST_EMPTY = { success: true, result: [] };
+
+/** Register empty-result REST name-list handlers for BOTH test accounts
+ *  (d1 + kv). Every suite that can trigger the pollCfUsage name-refresh
+ *  hook must call this in its beforeEach — otherwise msw passthrough leaks
+ *  those fetches to the real api.cloudflare.com (quality review 2026-09-12). */
+export function useRestNameDefaults(): void {
+  network.use(
+    http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfD1ListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY)),
+    http.get(cfKvListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY))
+  );
+}
 
 /** Bearer token for GET /api/cf-usage — value MUST equal the binding in
  *  vitest.config.ts miniflare bindings (same literal-sync pattern as the

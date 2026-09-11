@@ -21,6 +21,7 @@ import {
   setSlackSettings,
   TEST_CF,
   TEST_EMAIL,
+  useRestNameDefaults,
 } from './utils';
 
 const DAY = '2026-09-11'; // utcDay(CF_TEST_NOW) — noon UTC, elapsedSec 43200
@@ -64,10 +65,6 @@ const usageFixture = (v: {
 /** Empty accounts node → "token not scoped" failure mode. */
 const EMPTY_ACCOUNTS = { data: { viewer: { accounts: [] } } };
 
-/** Empty REST list — the default name-refresh response for every account
- *  (the poller hook hits these lists whenever the daily gate is open). */
-const REST_EMPTY = { success: true, result: [] };
-
 let gqlHits: string[] = [];
 let slackPosts: Array<{ channel: string; body: string }> = [];
 let emailPosts: Array<{ subject: string }> = [];
@@ -86,14 +83,12 @@ beforeEach(async () => {
   gqlHits = [];
   slackPosts = [];
   emailPosts = [];
+  // REST name-refresh defaults for both test accounts (shared helper) —
+  // without them the poller hook would hit the real network in every poll
+  // test. Registered before the gql handlers below; per-test overrides
+  // still win (msw is LIFO).
+  useRestNameDefaults();
   network.use(
-    // REST name-refresh defaults for both test accounts — without these the
-    // poller hook would hit the real network in every poll test. Registered
-    // before the gql handlers; per-test overrides still win (msw is LIFO).
-    http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
-    http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
-    http.get(cfD1ListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY)),
-    http.get(cfKvListUrl(TEST_CF.accountIdB), () => HttpResponse.json(REST_EMPTY)),
     // Default catch-all: zero usage for any token. Tests override with
     // network.use (msw runtime handlers are LIFO).
     http.post(TEST_CF.gqlUrl, async ({ request }) => {
@@ -488,6 +483,9 @@ describe('resource name refresh (poller hook)', () => {
     const summary = await pollCfUsage(DB, CF_TEST_NOW);
     expect(summary.polled).toBe(1);
     expect(summary.failures).toHaveLength(0); // usage poll itself succeeded
+    // the refresh failure must never leak into cf_accounts health — that
+    // column feeds the self-warning transition gate
+    expect((await getCfAccount(TEST_CF.accountId))?.last_error).toBeNull();
   });
 
   it('skips refresh entirely while the daily gate holds (no REST traffic)', async () => {

@@ -359,6 +359,7 @@ const CF_REST_BASE = 'https://api.cloudflare.com/client/v4';
 interface RestListEnvelope {
   success?: boolean;
   result?: Array<Record<string, unknown>> | null;
+  errors?: unknown;
 }
 
 async function fetchRestList(account: CfAccount, path: string): Promise<Array<Record<string, unknown>>> {
@@ -375,12 +376,17 @@ async function fetchRestList(account: CfAccount, path: string): Promise<Array<Re
   }
   const body = (await response.json()) as RestListEnvelope;
   if (body.success !== true || !Array.isArray(body.result)) {
-    throw new Error('unexpected REST list envelope');
+    const errs = Array.isArray(body.errors) ? body.errors : body.errors ? [body.errors] : [];
+    const detail = errs.length > 0 ? `: ${JSON.stringify(errs).slice(0, 200)}` : '';
+    throw new Error(`unexpected REST list envelope${detail}`);
   }
   return body.result;
 }
 
 async function fetchD1Names(account: CfAccount): Promise<Array<{ id: string; name: string }>> {
+  // per_page=100 single page: >100 databases and the replace-set DELETE
+  // actively removes page-2+ stored names (worse than GraphQL limit:100
+  // truncation — names vanish, not just stay unresolved). Fleet << 100.
   const result = await fetchRestList(account, `/accounts/${account.account_id}/d1/database?per_page=100`);
   return result
     .map((r) => ({ id: String(r.uuid ?? ''), name: String(r.name ?? '') }))
@@ -388,6 +394,7 @@ async function fetchD1Names(account: CfAccount): Promise<Array<{ id: string; nam
 }
 
 async function fetchKvNames(account: CfAccount): Promise<Array<{ id: string; name: string }>> {
+  // per_page=100 single page — same replace-set DELETE risk as fetchD1Names.
   const result = await fetchRestList(account, `/accounts/${account.account_id}/storage/kv/namespaces?per_page=100`);
   return result
     .map((r) => ({ id: normalizeNsId(String(r.id ?? '')), name: String(r.title ?? '') }))
