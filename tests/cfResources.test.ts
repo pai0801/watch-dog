@@ -169,6 +169,7 @@ describe('getResourceDetailByLabel', () => {
   it('returns null for a disabled account', async () => {
     await seedCfAccount({ enabled: 0 });
     expect(await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW)).toBeNull();
+    expect(gqlHits).toBe(0);
   });
 
   it('caches per account for 5 minutes — one GraphQL hit within TTL, refetch after', async () => {
@@ -183,11 +184,11 @@ describe('getResourceDetailByLabel', () => {
   it('serves the requested label even when the cached detail was fetched under another label', async () => {
     await seedCfAccount();
     await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
-    // rename the account — label cache misses, detail cache hits
+    // rename the account — next request comes under the new label
     await DB.prepare("UPDATE cf_accounts SET label = 'Renamed' WHERE account_id = ?").bind(TEST_CF.accountId).run();
-    // label cache still holds 'Test Account' → account row (5 min) → detail cache hit:
-    const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW + 60_000);
-    expect(detail?.label).toBe('Test Account');
+    // 'Renamed' misses the label cache → D1 resolves the same account → detail cache hit → re-stamp:
+    const detail = await getResourceDetailByLabel(DB, 'Renamed', CF_TEST_NOW + 60_000);
+    expect(detail?.label).toBe('Renamed');
     expect(gqlHits).toBe(1);
   });
 
