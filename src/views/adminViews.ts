@@ -5,15 +5,51 @@
 // - The Slack API token is NEVER echoed back into HTML. The form field is
 //   left empty with a masked placeholder; submitting an empty field keeps
 //   the stored value (see services/settings.ts).
+// - Same contract for the CF account API tokens (cf_accounts.api_token):
+//   masked display only, empty form field = keep stored, never echoed.
 
 import { html, raw } from 'hono/html';
 import type { Check, Project } from '../types';
 import type { AllSettings } from '../services/settings';
+import { METRICS, type CfAccount } from '../services/cfUsage';
 
 export type AdminProject = Project & {
   checks: Check[];
   projectStatus: 'ok' | 'error' | 'dead';
 };
+
+/** Row of today's cf_usage_state snapshot (subset of columns; PK prefix read). */
+export interface CfUsageStateRow {
+  account_id: string;
+  metric: string;
+  value: number;
+  projected_eod: number | null;
+  alerted_level: number;
+}
+
+/** Everything the CF 用量 tab renders, gathered by GET /admin. */
+export interface AdminCfData {
+  accounts: CfAccount[];
+  usageToday: CfUsageStateRow[];
+  dayUtc: string;
+}
+
+/** "1179 B" / "12.3 KiB" / "1.0 GiB" for the *_bytes storage gauges. */
+const fmtBytes = (n: number): string => {
+  if (n < 1024) return `${n} B`;
+  const units = ['KiB', 'MiB', 'GiB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+};
+
+/** Byte gauges get human units; everything else is a plain count. */
+const fmtMetricValue = (metric: string, n: number): string =>
+  metric.endsWith('_bytes') ? fmtBytes(n) : n.toLocaleString();
 
 /** Mask a secret for display: keep only the last 4 characters. */
 export function maskToken(token: string): string {
@@ -22,9 +58,14 @@ export function maskToken(token: string): string {
 }
 
 /**
- * Full admin dashboard content (settings / projects / checks tabs).
+ * Full admin dashboard content (settings / projects / checks / logs / CF usage tabs).
  */
-export const AdminPage = (settings: AllSettings, projects: Project[], projectsWithChecks: AdminProject[]) => html`
+export const AdminPage = (
+  settings: AllSettings,
+  projects: Project[],
+  projectsWithChecks: AdminProject[],
+  cf: AdminCfData,
+) => html`
 <div class="admin-dashboard" x-data="{ openTab: 'settings' }">
   <header style="margin-bottom: 2rem; border-bottom: 1px solid #333; padding-bottom: 1rem;">
     <div class="admin-header-row" style="display: flex; justify-content: space-between; align-items: center;">
@@ -51,6 +92,10 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
         @click="openTab = 'logs'"
         :class="openTab === 'logs' ? 'primary' : 'outline secondary'"
       >Logs</button>
+      <button
+        @click="openTab = 'cf-usage'"
+        :class="openTab === 'cf-usage' ? 'primary' : 'outline secondary'"
+      >CF 用量</button>
     </nav>
   </header>
 
@@ -390,6 +435,155 @@ export const AdminPage = (settings: AllSettings, projects: Project[], projectsWi
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- CF Usage Tab -->
+  <div x-show="openTab === 'cf-usage'" x-cloak>
+    <div class="admin-tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+      <h2 style="margin: 0;">CF 帳號用量（每 30 分鐘輪詢）</h2>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <span id="cf-run-result" style="color: #aaa; font-size: 0.85rem;"></span>
+        <button type="button" class="primary"
+          hx-post="/admin/cf-usage/run"
+          hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+          hx-on::after-request="const r=event.detail.xhr.responseJSON; document.getElementById('cf-run-result').textContent = 'polled=' + r.polled + ' recorded=' + r.recorded + ' alerts=' + r.alertsSent + (r.failures.length ? ' ✗ ' + r.failures.map(f => f.label + ': ' + f.error).join('; ') : ' ✓')"
+        >▶ 立即輪詢</button>
+      </div>
+    </div>
+    <p><small>額度以 UTC 日計（台北 08:00 重置）。已用 ≥60% 警告（Slack）、≥80% 危險（Slack＋email）、速率投影預估今日超額 → 警告。token 僅需 Account→Analytics: Read。</small></p>
+
+    ${raw(cf.accounts.length === 0
+      ? html`<p style="color: #888;">尚未 onboard 任何 CF 帳號——展開下方「新增帳號」表單開始（輪詢在零帳號時自動休眠）。</p>`
+      : html`
+    <h3>今日用量快照（UTC 資料日 ${cf.dayUtc}）</h3>
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <table class="checks-table striped" style="font-size: 0.8rem; width: 100%; min-width: max-content;">
+        <thead>
+          <tr>
+            <th>帳號</th>
+            <th>指標</th>
+            <th>已用</th>
+            <th>配額</th>
+            <th>%</th>
+            <th>預估 EOD</th>
+            <th>告警</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${raw(cf.accounts.map((a) => {
+            const metricOrder = Object.keys(METRICS);
+            const rows = cf.usageToday
+              .filter((u) => u.account_id === a.account_id)
+              .sort((x, y) => metricOrder.indexOf(x.metric) - metricOrder.indexOf(y.metric));
+            if (rows.length === 0) {
+              return html`<tr><td>${a.label}</td><td colspan="6" style="color: #888;">尚無資料——下輪 poll 或按「▶ 立即輪詢」</td></tr>`;
+            }
+            return rows.map((u) => {
+              const def = METRICS[u.metric];
+              const quota = def ? (def.quotas[a.plan] ?? 0) : 0;
+              const pct = quota > 0 ? u.value / quota : null;
+              const pctColor = pct !== null && pct >= 0.8 ? '#e74c3c' : pct !== null && pct >= 0.6 ? '#f39c12' : 'inherit';
+              return html`<tr>
+                <td>${a.label}</td>
+                <td>${def ? def.label : u.metric}</td>
+                <td>${fmtMetricValue(u.metric, u.value)}</td>
+                <td>${quota > 0 ? fmtMetricValue(u.metric, quota) : '—'}</td>
+                <td style="color: ${pctColor}; font-weight: ${pct !== null && pct >= 0.6 ? 'bold' : 'normal'};">${pct !== null ? `${Math.round(pct * 100)}%` : '—'}</td>
+                <td>${u.projected_eod !== null ? fmtMetricValue(u.metric, u.projected_eod) : '—'}</td>
+                <td>${u.alerted_level === 2 ? '🔴 已發危險' : u.alerted_level === 1 ? '🟠 已發警告' : ''}</td>
+              </tr>`;
+            }).join('');
+          }).join(''))}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top: 2rem;">帳號</h3>
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <table class="admin-projects-table striped">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Account ID</th>
+            <th>Token</th>
+            <th>Plan</th>
+            <th>Enabled</th>
+            <th>Last OK</th>
+            <th>Last Error</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${raw(cf.accounts.map((a) => html`
+            <tr>
+              <td>${a.label}</td>
+              <td><code>${a.account_id}</code></td>
+              <td><code>${maskToken(a.api_token)}</code></td>
+              <td>${a.plan}</td>
+              <td style="text-align: center;">
+                <input
+                  type="checkbox"
+                  ${a.enabled ? 'checked' : ''}
+                  hx-post="/admin/cf-usage/accounts/${a.account_id}/toggle"
+                  hx-vals='{"enabled": ${a.enabled ? 0 : 1}}'
+                  hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+                  hx-swap="none"
+                />
+              </td>
+              <td>${a.last_ok_at > 0 ? new Date(a.last_ok_at * 1000).toLocaleString() : '—'}</td>
+              <td>${a.last_error ? a.last_error.slice(0, 120) : '✓'}</td>
+              <td style="white-space: nowrap;">
+                <button
+                  hx-get="/admin/cf-usage/accounts/${a.account_id}/edit"
+                  hx-target="#modal-container"
+                  hx-swap="innerHTML"
+                  class="outline secondary"
+                  style="font-size: 0.75rem;"
+                >Edit</button>
+                <button
+                  hx-delete="/admin/cf-usage/accounts/${a.account_id}"
+                  hx-confirm="刪除帳號「${a.label}」？其用量狀態 rows 一併刪除。"
+                  hx-headers='{"X-Requested-With":"XMLHttpRequest"}'
+                  hx-on::after-request="if(this.getResponseHeader('X-Deleted') === 'true') window.location.href='/admin'"
+                  class="outline secondary"
+                  style="font-size: 0.75rem;"
+                >Delete</button>
+              </td>
+            </tr>
+          `).join(''))}
+        </tbody>
+      </table>
+    </div>`)}
+
+    <details style="margin-top: 1.5rem;">
+      <summary style="cursor: pointer; color: #aaa;">＋ 新增帳號</summary>
+      <form hx-post="/admin/cf-usage/accounts" hx-swap="outerHTML" style="margin-top: 1rem;">
+        <div class="admin-settings-grid grid">
+          <label>
+            Account ID
+            <input type="text" name="account_id" required pattern="[0-9a-f]{32}" placeholder="8fdbf0ee…" autocomplete="off" />
+            <small>32 位十六進位 CF account tag（form 的 pattern 只是提示，server 端再驗）</small>
+          </label>
+          <label>
+            Label
+            <input type="text" name="label" required placeholder="Helperp prod" />
+          </label>
+          <label>
+            API Token（Analytics Read）
+            <input type="text" name="api_token" autocomplete="off" placeholder="watch-dog-usage-…" />
+            <small>僅需 Account→Analytics: Read 權限；建立後不可查回，忘了就重 mint</small>
+          </label>
+          <label>
+            Plan
+            <select name="plan">
+              <option value="free" selected>free</option>
+              <option value="paid">paid</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit" class="primary">儲存帳號</button>
+      </form>
+    </details>
   </div>
 
   <!-- Modal Container -->

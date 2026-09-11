@@ -6,12 +6,13 @@ import { Hono, type MiddlewareHandler } from 'hono';
 import { html, raw } from 'hono/html';
 import type { AppBindings, Check, Project } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
-import { escapeLikePattern, isValidProjectId } from '../lib/validate';
+import { escapeLikePattern, isValidAccountId, isValidProjectId } from '../lib/validate';
 import { getAllSettings, updateEmailSettings, updateSlackSettings, updateSetting } from '../services/settings';
 import { sendEmailAlert, sendSlackAlert, type AlertLevel } from '../services/alert';
 import { setMaintenance } from '../services/maintenance';
+import { pollCfUsage, type CfAccount } from '../services/cfUsage';
 import { Layout } from '../views/layout';
-import { AdminPage, type AdminProject } from '../views/adminViews';
+import { AdminPage, type AdminCfData, type AdminProject, type CfUsageStateRow } from '../views/adminViews';
 import { ErrorState } from '../views/dashboard';
 
 const admin = new Hono<{ Bindings: AppBindings }>();
@@ -80,7 +81,23 @@ admin.get('/admin', async (c) => {
       };
     });
 
-    return c.html(Layout({ title: 'Admin - Watch-Dog Sentinel', content: AdminPage(settings, projects, projectsWithChecks) }));
+    // CF usage monitor: accounts + today's snapshot (day_utc lead of the PK
+    // keeps this a prefix scan, not a full-table read — idx_logs lesson).
+    const cfAccountsResult = await db
+      .prepare('SELECT * FROM cf_accounts ORDER BY label')
+      .all<CfAccount>();
+    const cfDayUtc = new Date().toISOString().slice(0, 10);
+    const cfUsageResult = await db
+      .prepare('SELECT account_id, metric, value, projected_eod, alerted_level FROM cf_usage_state WHERE day_utc = ?')
+      .bind(cfDayUtc)
+      .all<CfUsageStateRow>();
+    const cf: AdminCfData = {
+      accounts: cfAccountsResult.results,
+      usageToday: cfUsageResult.results,
+      dayUtc: cfDayUtc,
+    };
+
+    return c.html(Layout({ title: 'Admin - Watch-Dog Sentinel', content: AdminPage(settings, projects, projectsWithChecks, cf) }));
   } catch (error) {
     console.error('Admin error:', error);
     return c.html(
@@ -735,6 +752,219 @@ admin.post('/admin/projects/new', rejectJsonBody, async (c) => {
         Error creating project
       </div>
     `);
+  }
+});
+
+// ============================================================================
+// CF usage monitor (2026-09-11) — accounts CRUD + manual poll trigger.
+// Token model: account-scoped Analytics-Read tokens stored in cf_accounts
+// (same D1-single-truth model as the Slack/email tokens, NOT Worker secrets).
+// The token value is never echoed back — masked display + empty-field-keeps.
+// ============================================================================
+
+/** Inline red banner for htmx form responses (settings-save idiom). */
+const cfRedFragment = (msg: string) => html`
+  <div style="padding: 1rem; background: #e74c3c; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
+    ${msg}
+  </div>
+`;
+
+/**
+ * POST /admin/cf-usage/accounts
+ * Create or update a monitored CF account. Empty api_token on update keeps
+ * the stored token (masked contract, same as Slack/email settings).
+ */
+admin.post('/admin/cf-usage/accounts', rejectJsonBody, async (c) => {
+  const db = c.env.DB;
+
+  try {
+    const body = await c.req.parseBody();
+    const accountId = body.account_id as string;
+    const label = ((body.label as string) ?? '').trim();
+    const token = ((body.api_token as string) ?? '').trim();
+    const plan = body.plan as string;
+
+    if (!isValidAccountId(accountId)) {
+      return c.html(cfRedFragment('Invalid Account ID：應為 32 位十六進位字串（CF account tag）'));
+    }
+    if (!label) {
+      return c.html(cfRedFragment('Label 必填'));
+    }
+    if (plan !== 'free' && plan !== 'paid') {
+      return c.html(cfRedFragment('Plan 必須是 free 或 paid'));
+    }
+
+    const existing = await db
+      .prepare('SELECT api_token FROM cf_accounts WHERE account_id = ?')
+      .bind(accountId)
+      .first<{ api_token: string }>();
+    if (!existing && token.length < 40) {
+      return c.html(cfRedFragment('建立帳號時 API Token 必填（CF API token 通常 ≥40 字元）'));
+    }
+    if (token && token.length < 40) {
+      return c.html(cfRedFragment('API Token 太短（CF API token 通常 ≥40 字元）'));
+    }
+    // Empty field on update = keep the stored token (the form never echoes it).
+    const effectiveToken = existing && token === '' ? existing.api_token : token;
+
+    await db.prepare(`
+      INSERT INTO cf_accounts (account_id, label, api_token, plan)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET
+        label = excluded.label,
+        api_token = excluded.api_token,
+        plan = excluded.plan
+    `).bind(accountId, label, effectiveToken, plan).run();
+
+    return c.html(html`
+      <div style="padding: 1rem; background: #2ecc71; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
+        帳號已儲存——按「▶ 立即輪詢」驗證 token（該帳號應出現在 polled 且不在 failures）。
+      </div>
+      <script>setTimeout(() => htmx.ajax('GET', '/admin', {target: 'body', swap: 'outerHTML'}), 500);</script>
+    `);
+  } catch (error) {
+    console.error('CF account save error:', error);
+    return c.html(cfRedFragment('Error saving CF account. Please try again.'));
+  }
+});
+
+/**
+ * GET /admin/cf-usage/accounts/:accountId/edit
+ * Edit modal (check-edit idiom). api_token field is empty with a masked
+ * placeholder — submitting empty keeps the stored token.
+ */
+admin.get('/admin/cf-usage/accounts/:accountId/edit', async (c) => {
+  const db = c.env.DB;
+  const accountId = c.req.param('accountId');
+
+  const account = await db
+    .prepare('SELECT * FROM cf_accounts WHERE account_id = ?')
+    .bind(accountId)
+    .first<CfAccount>();
+
+  if (!account) {
+    return c.html(html`<div>Account not found</div>`);
+  }
+
+  return c.html(html`
+<div x-data="{ open: true }" x-show="open" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+  <div class="modal-dialog" @click.outside="closeModal()" style="background: #242424; padding: 2rem; border-radius: 0.5rem; max-width: 500px; width: 100%;">
+    <h3>Edit CF Account</h3>
+    <form hx-post="/admin/cf-usage/accounts" hx-swap="outerHTML">
+      <label>
+        Account ID
+        <input type="text" value="${account.account_id}" disabled />
+        <input type="hidden" name="account_id" value="${account.account_id}" />
+      </label>
+      <label>
+        Label
+        <input type="text" name="label" value="${account.label}" required />
+      </label>
+      <label>
+        API Token（Analytics Read）
+        <input
+          type="text"
+          name="api_token"
+          value=""
+          autocomplete="off"
+          placeholder="${account.api_token ? `留空 = 保留現有 token（••••••••${account.api_token.slice(-4)}）` : '貼上 token'}"
+        />
+        <small>輪替 token 就貼新值；留空 = 不動</small>
+      </label>
+      <label>
+        Plan
+        <select name="plan">
+          <option value="free" ${account.plan === 'free' ? 'selected' : ''}>free</option>
+          <option value="paid" ${account.plan !== 'free' ? 'selected' : ''}>paid</option>
+        </select>
+      </label>
+      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <button type="submit" class="primary">Save</button>
+        <button type="button" class="outline secondary" @click="closeModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    function closeModal() {
+      const container = document.getElementById('modal-container');
+      if (container) {
+        container.innerHTML = '';
+      }
+    }
+  </script>
+</div>
+  `);
+});
+
+/**
+ * POST /admin/cf-usage/accounts/:accountId/toggle
+ * Enable/disable polling (checks monitor-toggle idiom: disabled = no fetch,
+ * no alerts, history retained).
+ */
+admin.post('/admin/cf-usage/accounts/:accountId/toggle', rejectJsonBody, async (c) => {
+  const db = c.env.DB;
+  const accountId = c.req.param('accountId');
+
+  try {
+    const body = await c.req.parseBody();
+    const enabledValue = body.enabled as string | number;
+    const enabled = enabledValue === '1' || enabledValue === 1 ? 1 : 0;
+
+    await db
+      .prepare('UPDATE cf_accounts SET enabled = ? WHERE account_id = ?')
+      .bind(enabled, accountId)
+      .run();
+
+    return c.json({ success: true, account_id: accountId, enabled });
+  } catch (error) {
+    console.error('CF account toggle error:', error);
+    return c.json({ error: 'Failed to toggle CF account' }, 500);
+  }
+});
+
+/**
+ * DELETE /admin/cf-usage/accounts/:accountId
+ * Delete an account and its usage-state rows (project-delete idiom: cascade
+ * children first, X-Deleted header drives the htmx redirect).
+ */
+admin.delete('/admin/cf-usage/accounts/:accountId', async (c) => {
+  const db = c.env.DB;
+  const accountId = c.req.param('accountId');
+
+  try {
+    await db.prepare('DELETE FROM cf_usage_state WHERE account_id = ?').bind(accountId).run();
+
+    const accountResult = await db
+      .prepare('DELETE FROM cf_accounts WHERE account_id = ?')
+      .bind(accountId)
+      .run();
+
+    if (!accountResult.success || accountResult.meta.changes === 0) {
+      return c.json({ error: 'Account not found or already deleted' }, 404);
+    }
+
+    c.header('X-Deleted', 'true');
+    return c.json({ success: true, account_id: accountId });
+  } catch (error) {
+    console.error('CF account delete error:', error);
+    return c.json({ error: 'Failed to delete CF account' }, 500);
+  }
+});
+
+/**
+ * POST /admin/cf-usage/run
+ * Poll all enabled accounts right now and return the summary JSON
+ * (slack-test idiom) — the operator's per-account token verification tool
+ * during onboarding. Alert dispatch is exactly-once (CAS claims), so a
+ * manual run can never double-send.
+ */
+admin.post('/admin/cf-usage/run', async (c) => {
+  try {
+    const summary = await pollCfUsage(c.env.DB);
+    return c.json(summary);
+  } catch (error) {
+    console.error('CF usage run error:', error);
+    return c.json({ error: 'Poll failed', detail: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
 

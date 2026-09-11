@@ -49,7 +49,7 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 
 把 [client-guide.md](client-guide.md) 給客戶端專案的維護者（或其 agent）——裡面有 30 秒最小閉環、三種語言範例、和可直接貼進 client repo CLAUDE.md 的 agent 指示塊。
 
-## Admin 管理頁面（四標籤）
+## Admin 管理頁面（五標籤）
 
 ### Settings 標籤
 - Slack API Token 與頻道 ID（Token 遮罩顯示，留空送出 = 保留）
@@ -71,6 +71,16 @@ Token 交接給客戶端專案時走該專案的 secrets 管理管道（如各 r
 ### Logs 標籤
 - 最近 pulse 歷史（`logs` 表，cron 每 7 天清除）：時間／check／狀態／latency／訊息
 - 依專案過濾＋筆數上限（50/100/200）
+
+### CF 用量標籤（2026-09-11 起）
+全 CF 帳號的配額監控（9/7 log cleanup、9/11 countRecentErrors 兩次 D1 額度事故的事後 500 → 事前預警）：
+- **輪詢節奏**：既有每分鐘 cron 在 handler 內閘控（`% 1800 < 60`，與每小時 cleanup 同機制）——**零新增 cron trigger**，每 30 分鐘輪詢一次全部啟用帳號；每支 token 一支 GraphQL 查詢（五個 dataset 合併），互為並行
+- **監控指標（9 項/帳號）**：D1 rows 讀/寫、Workers 請求/錯誤、KV 操作、KV 儲存 bytes/keys、R2 儲存 bytes/物件數；免費額度查 `METRICS` registry（paid plan 對映預留）
+- **警示語義**：已用 ≥60% → 警告（Slack）；≥80% → 危險（Slack＋**email**）；counter 類依燃燒速率**預估今日超額** → 警告（含預估觸頂時間，額度 UTC 00:00＝台北 08:00 重置）。日內只升不降、每指標每級恰一次；**無 recovery 告警**（額度重置非事件）
+- **▶ 立即輪詢**：手動觸發一次，回 `polled/recorded/alerts/failures` 摘要——**onboarding 逐帳號驗 token 的工具**
+- **新增帳號**：Account ID（32 hex）＋Label＋API Token＋Plan。Token 到各帳號 dash.cloudflare.com → My Profile → API Tokens → Create Custom Token，**僅 Account→Analytics: Read、單帳號 scope**；遮罩顯示、留空=保留（同 Slack/Email token 合約）
+- **自我監控**：token 失效/網路錯只在「ok→fail 轉換」時寄一則 Slack 自我警告（死 token 不會洗版）；全部帳號同時失敗才寄信
+- **成本紀律**：監控自身用量 ≈80 rows read + ≈80 rows written /poll（48 polls/day ≈ 0.08% 讀 / 3.8% 寫額度）——監控自己在 host 帳號的 `d1_rows_read/written` 曲線上是特徵不是 bug
 
 ## Zero Trust（Cloudflare Access）前置規劃
 

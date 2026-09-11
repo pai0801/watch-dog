@@ -4,6 +4,7 @@
 import { env } from 'cloudflare:test';
 import schemaSql from '../src/db.sql?raw';
 import type { Check, Env, Project } from '../src/types';
+import type { CfAccount } from '../src/services/cfUsage';
 
 export const DB = env.DB as unknown as D1Database;
 
@@ -18,7 +19,9 @@ export async function applySchema(): Promise<void> {
   const statements = schemaSql
     .split(';')
     .map((s) => s.trim())
-    .filter(Boolean);
+    // Skip fragments that are only comments (a ';' inside a -- comment splits
+    // mid-comment; comment-only fragments make D1 reject the whole batch).
+    .filter((s) => s.replace(/--[^\n]*/g, '').trim().length > 0);
   await DB.batch(statements.map((s) => DB.prepare(s)));
   schemaApplied = true;
 }
@@ -31,6 +34,8 @@ export async function resetDb(): Promise<void> {
     DB.prepare('DELETE FROM checks'),
     DB.prepare('DELETE FROM projects'),
     DB.prepare('DELETE FROM settings'),
+    DB.prepare('DELETE FROM cf_accounts'),
+    DB.prepare('DELETE FROM cf_usage_state'),
   ]);
 }
 
@@ -157,3 +162,77 @@ export async function countLogs(checkId: string): Promise<number> {
   const row = await DB.prepare('SELECT COUNT(*) AS n FROM logs WHERE check_id = ?').bind(checkId).first<{ n: number }>();
   return row?.n ?? 0;
 }
+
+// ============================================================================
+// CF usage monitor fixtures
+// ============================================================================
+
+/** GraphQL endpoint + two distinguishable account/token pairs (msw routes
+ *  the response by Authorization header). Tokens are throwaway test values. */
+export const TEST_CF = {
+  gqlUrl: 'https://api.cloudflare.com/client/v4/graphql',
+  accountId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  token: `cf-test-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`,
+  accountIdB: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  tokenB: `cf-test-token-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`,
+};
+
+export async function seedCfAccount(overrides: Partial<CfAccount> = {}): Promise<CfAccount> {
+  const account: CfAccount = {
+    account_id: TEST_CF.accountId,
+    label: 'Test Account',
+    api_token: TEST_CF.token,
+    plan: 'free',
+    enabled: 1,
+    last_ok_at: 0,
+    last_error: null,
+    created_at: nowSec(),
+    ...overrides,
+  };
+  await DB.prepare(`
+    INSERT INTO cf_accounts (account_id, label, api_token, plan, enabled, last_ok_at, last_error, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+    .bind(
+      account.account_id, account.label, account.api_token, account.plan,
+      account.enabled, account.last_ok_at, account.last_error, account.created_at
+    )
+    .run();
+  return account;
+}
+
+export interface CfUsageStateTestRow {
+  day_utc: string;
+  account_id: string;
+  metric: string;
+  value: number;
+  projected_eod: number | null;
+  alerted_level: number;
+}
+
+export async function getUsageState(
+  dayUtc: string,
+  accountId: string,
+  metric?: string
+): Promise<CfUsageStateTestRow[]> {
+  if (metric) {
+    const rows = await DB
+      .prepare('SELECT * FROM cf_usage_state WHERE day_utc = ? AND account_id = ? AND metric = ?')
+      .bind(dayUtc, accountId, metric)
+      .all<CfUsageStateTestRow>();
+    return rows.results;
+  }
+  const rows = await DB
+    .prepare('SELECT * FROM cf_usage_state WHERE day_utc = ? AND account_id = ?')
+    .bind(dayUtc, accountId)
+    .all<CfUsageStateTestRow>();
+  return rows.results;
+}
+
+export async function getCfAccount(accountId: string): Promise<CfAccount | null> {
+  return DB.prepare('SELECT * FROM cf_accounts WHERE account_id = ?').bind(accountId).first<CfAccount>();
+}
+
+/** UTC noon on a fixed day — deterministic dayUtc ('2026-09-11') and
+ *  elapsedSec (43200) for projection math. */
+export const CF_TEST_NOW = Date.UTC(2026, 8, 11, 12, 0, 0); // month 8 = September

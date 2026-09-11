@@ -8,14 +8,18 @@ import { http, HttpResponse } from 'msw';
 import { network } from './network';
 import {
   DB,
+  getCfAccount,
   getProject,
   getSetting,
+  getUsageState,
   resetDb,
+  seedCfAccount,
   seedCheck,
   seedProject,
   setEmailSettings,
   setSetting,
   setSlackSettings,
+  TEST_CF,
   TEST_EMAIL,
   TEST_SLACK,
 } from './utils';
@@ -465,5 +469,166 @@ describe('admin feature round 2026-09-05 — slack-test / token lifecycle / logs
     const text = await res.text();
     expect(text).toContain('svc:hb');
     expect(text).not.toContain('svc-2:hb'); // anchored on `project:` — no sibling bleed
+  });
+});
+
+describe('CF usage monitor endpoints', () => {
+  const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const post = (body: string, extra: Record<string, string> = {}) =>
+    SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM, ...extra },
+      body,
+    });
+
+  it('gates the account CRUD endpoints behind Basic Auth + CSRF marker', async () => {
+    // XHR marker present so the request clears the CSRF guard and reaches
+    // the Basic-Auth gate (middleware order: CSRF runs first).
+    const unauth = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: { ...FORM, 'X-Requested-With': 'XMLHttpRequest' },
+      body: 'account_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&label=X&plan=free',
+    });
+    expect(unauth.status).toBe(401);
+
+    const noXhr = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), ...FORM },
+      body: 'account_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&label=X&plan=free',
+    });
+    expect(noXhr.status).toBe(403);
+
+    const del = await SELF.fetch('http://localhost/admin/cf-usage/accounts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {
+      method: 'DELETE',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    expect(del.status).toBe(401);
+  });
+
+  it('creates an account (valid id/label/token/plan) without echoing the token', async () => {
+    const res = await post(
+      `account_id=${TEST_CF.accountId}&label=Test+Account&api_token=${TEST_CF.token}&plan=free`
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('帳號已儲存');
+    expect(text).not.toContain(TEST_CF.token);
+
+    const row = await getCfAccount(TEST_CF.accountId);
+    expect(row).toMatchObject({ label: 'Test Account', api_token: TEST_CF.token, plan: 'free', enabled: 1 });
+  });
+
+  it('rejects invalid account ids, plans, missing/short tokens with a red fragment', async () => {
+    const badId = await post('account_id=zzz&label=X&api_token=tttt&plan=free');
+    expect(await badId.text()).toContain('Invalid Account ID');
+    expect(await getCfAccount('zzz')).toBeNull();
+
+    const badPlan = await post(`account_id=${TEST_CF.accountId}&label=X&api_token=${TEST_CF.token}&plan=enterprise`);
+    expect(await badPlan.text()).toContain('Plan');
+
+    const noToken = await post(`account_id=${TEST_CF.accountId}&label=X&plan=free`);
+    expect(await noToken.text()).toContain('API Token 必填');
+
+    // "太短" branch needs an existing row (edit path) — create-path with a
+    // short token hits the 必填 branch first.
+    await seedCfAccount();
+    const shortToken = await post(`account_id=${TEST_CF.accountId}&label=X&api_token=short&plan=free`);
+    expect(await shortToken.text()).toContain('太短');
+  });
+
+  it('rejects JSON bodies with 415 (WD-03 guard)', async () => {
+    const res = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
+      method: 'POST',
+      headers: {
+        Authorization: basic(ADMIN_PASSWORD),
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ account_id: TEST_CF.accountId, label: 'X' }),
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it('update with empty api_token keeps the stored token', async () => {
+    await seedCfAccount({ label: 'Old Label' });
+    const res = await post(`account_id=${TEST_CF.accountId}&label=New+Label&api_token=&plan=paid`);
+    expect(res.status).toBe(200);
+    const row = await getCfAccount(TEST_CF.accountId);
+    expect(row).toMatchObject({ label: 'New Label', api_token: TEST_CF.token, plan: 'paid' });
+  });
+
+  it('edit modal renders masked token, never the stored value', async () => {
+    await seedCfAccount();
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/edit`,
+      { headers: { Authorization: basic(ADMIN_PASSWORD) } }
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('Edit CF Account');
+    expect(text).not.toContain(TEST_CF.token);
+    expect(text).toContain(`••••••••${TEST_CF.token.slice(-4)}`);
+  });
+
+  it('toggles polling on/off', async () => {
+    await seedCfAccount({ enabled: 1 });
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/toggle`,
+      {
+        method: 'POST',
+        headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM },
+        body: 'enabled=0',
+      }
+    );
+    expect(res.status).toBe(200);
+    expect((await getCfAccount(TEST_CF.accountId))?.enabled).toBe(0);
+  });
+
+  it('deletes an account and cascades its usage-state rows (X-Deleted header)', async () => {
+    await seedCfAccount();
+    await DB.prepare(
+      `INSERT INTO cf_usage_state (day_utc, account_id, metric, value) VALUES ('2026-09-11', ?, 'd1_rows_read', 123)`
+    ).bind(TEST_CF.accountId).run();
+
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}`,
+      { method: 'DELETE', headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest' } }
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Deleted')).toBe('true');
+    expect(await getCfAccount(TEST_CF.accountId)).toBeNull();
+    expect(await getUsageState('2026-09-11', TEST_CF.accountId)).toHaveLength(0);
+
+    const missing = await SELF.fetch(
+      'http://localhost/admin/cf-usage/accounts/cccccccccccccccccccccccccccccccc',
+      { method: 'DELETE', headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest' } }
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it('run endpoint polls now and returns the summary JSON', async () => {
+    await seedCfAccount();
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => HttpResponse.json({ data: { viewer: { accounts: [{}] } } }))
+    );
+
+    const res = await SELF.fetch('http://localhost/admin/cf-usage/run', {
+      method: 'POST',
+      headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ polled: 1, recorded: 9, alertsSent: 0, failures: [] });
+  });
+
+  it('GET /admin renders the CF tab with a masked token and never the value', async () => {
+    await seedCfAccount();
+    const res = await SELF.fetch('http://localhost/admin', {
+      headers: { Authorization: basic(ADMIN_PASSWORD) },
+    });
+    const text = await res.text();
+    expect(text).toContain('CF 用量');
+    expect(text).toContain('立即輪詢');
+    expect(text).not.toContain(TEST_CF.token);
+    expect(text).toContain(`••••••••${TEST_CF.token.slice(-4)}`);
   });
 });

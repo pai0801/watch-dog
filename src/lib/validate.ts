@@ -12,12 +12,20 @@ export const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** Check names: word-ish characters only (become `{projectId}:{name}` ids). */
 export const CHECK_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
+/** CF account tags: exactly 32 hex chars (accountTag filter of the GraphQL
+ *  Analytics API; the form's pattern attribute is client-side only). */
+export const ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/;
+
 export function isValidProjectId(id: unknown): id is string {
   return typeof id === 'string' && PROJECT_ID_PATTERN.test(id);
 }
 
 export function isValidCheckName(name: unknown): name is string {
   return typeof name === 'string' && CHECK_NAME_PATTERN.test(name);
+}
+
+export function isValidAccountId(id: unknown): id is string {
+  return typeof id === 'string' && ACCOUNT_ID_PATTERN.test(id);
 }
 
 /**

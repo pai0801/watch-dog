@@ -1,12 +1,23 @@
 // tests/cron.test.ts
 // Cron (scheduled) handler: dead-check detection, self-monitoring pulse,
-// and 7-day log cleanup.
+// 7-day log cleanup, and the 30-minute CF usage poll gate.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import worker from '../src/index';
 import { network } from './network';
-import { DB, getCheck, resetDb, seedCheck, seedProject, setSlackSettings, TEST_ENV } from './utils';
+import {
+  DB,
+  getCheck,
+  getUsageState,
+  resetDb,
+  seedCfAccount,
+  seedCheck,
+  seedProject,
+  setSlackSettings,
+  TEST_CF,
+  TEST_ENV,
+} from './utils';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -123,5 +134,46 @@ describe('scheduled handler', () => {
 
     const remaining = await DB.prepare('SELECT COUNT(*) AS n FROM logs').first<{ n: number }>();
     expect(remaining?.n).toBe(1); // old log survives — cleanup gated off
+  });
+});
+
+describe('scheduled handler — CF usage poll gate', () => {
+  /** All-zero GraphQL fixture: 9 recorded rows, zero alerts. */
+  const ZERO_USAGE = { data: { viewer: { accounts: [{}] } } };
+
+  it('polls CF usage on half-hour-aligned firings and records 9 metric rows', async () => {
+    await seedCfAccount();
+    let gqlHits = 0;
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => {
+        gqlHits++;
+        return HttpResponse.json(ZERO_USAGE);
+      })
+    );
+
+    const aligned = Math.floor(Date.now() / 1800000) * 1800000; // any :00/:30
+    await runScheduled(aligned);
+
+    expect(gqlHits).toBe(1);
+    const dayUtc = new Date(aligned).toISOString().slice(0, 10);
+    expect(await getUsageState(dayUtc, TEST_CF.accountId)).toHaveLength(9);
+  });
+
+  it('skips the usage poll on :15 firings (no fetch, no state rows)', async () => {
+    await seedCfAccount();
+    let gqlHits = 0;
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => {
+        gqlHits++;
+        return HttpResponse.json(ZERO_USAGE);
+      })
+    );
+
+    const quarterPast = Math.floor(Date.now() / 1800000) * 1800000 + 900000; // :15
+    await runScheduled(quarterPast);
+
+    expect(gqlHits).toBe(0);
+    const dayUtc = new Date(quarterPast).toISOString().slice(0, 10);
+    expect(await getUsageState(dayUtc, TEST_CF.accountId)).toHaveLength(0);
   });
 });

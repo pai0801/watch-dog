@@ -4,6 +4,7 @@
 import type { ScheduledEvent } from '@cloudflare/workers-types';
 import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult } from './services/logic';
+import { pollCfUsage } from './services/cfUsage';
 
 export const scheduled = async (
   event: ScheduledEvent,
@@ -19,6 +20,9 @@ export const scheduled = async (
       // scheduledTime is the XX:00 firing but may drift by a few ms, so match
       // any second within the first minute after the hour boundary (< 60).
       const cleanupDue = Math.floor(event.scheduledTime / 1000) % 3600 < 60;
+      // CF usage poll gate: every 30 minutes, same drift-tolerant idiom.
+      // (Kept independent from cleanupDue so the cadences can't entangle.)
+      const usagePollDue = Math.floor(event.scheduledTime / 1000) % 1800 < 60;
 
       try {
         // ===== Self-Monitoring: Watch-Dog monitors itself =====
@@ -83,9 +87,34 @@ export const scheduled = async (
             .prepare('DELETE FROM logs WHERE created_at < ?')
             .bind(now - 604800)
             .run();
+          // CF usage state retention: 14 days of daily snapshots is ample
+          // (carry-over only needs yesterday). day_utc lead of the PK makes
+          // this a prefix range scan, not a full-table sweep.
+          await env.DB
+            .prepare("DELETE FROM cf_usage_state WHERE day_utc < date('now', '-14 days')")
+            .run();
         }
       } catch (e) {
         console.error('Cron error:', e);
+      }
+
+      // ===== CF account usage poll (every 30 min, gated above) =====
+      // Own try/catch, deliberately outside the fail-dead path above: a bug
+      // or outage in the usage monitor must never compromise dead-service
+      // detection (invariant ①). pollCfUsage itself never throws, but the
+      // SELECT could (e.g. schema not yet applied post-deploy) — belt and
+      // suspenders.
+      if (usagePollDue) {
+        try {
+          const summary = await pollCfUsage(env.DB, event.scheduledTime);
+          if (summary.failures.length > 0) {
+            console.error(
+              `[cf-usage] poll failures: ${summary.failures.map((f) => `${f.label}: ${f.error}`).join('; ')}`
+            );
+          }
+        } catch (e) {
+          console.error('CF usage poll error:', e);
+        }
       }
     })()
   );

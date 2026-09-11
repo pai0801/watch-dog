@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-11] CF 全帳號用量監控上線——每 30 分鐘 GraphQL Analytics 輪詢＋60%/80% 閾值＋速率投影警示（含 email）
+
+**目標**：兩次共享帳號 D1 額度事故（9/7 cleanup ~4.1M、9/11 countRecentErrors ~7.3M rows/day）都是「服務 500 才發現」——建主動預警層：對全部 8 個 CF 帳號每 30 分鐘輪詢 D1/Workers/KV/R2 用量，已用 ≥60% Slack 警告、≥80% Slack＋email 危險、燃燒速率預估今日超額 → 警告（含預估觸頂時間）。操作者約束：**不得增加 cron 使用**（觸發器維持單一 `* * * * *` 零變動，30 分鐘節奏由 handler 內閘控區分——與每小時 cleanup 同 `% 閘` 機制）且**監控自身 D1 用量必須極小**。
+**原因**：非修復——功能新增（docs/0911-01-CF-api.md 評估 → 操作者批准 GraphQL Analytics API 為主通道；Billable Usage API 需 Billing Read 權限＋billing-cycle 導向，不採）。API 合約 2026-09-11 以真實 token（8fdbf0ee/c8be0aed）逐 dataset 實測釘死：五個 dataset（d1AnalyticsAdaptiveGroups/workersInvocationsAdaptive/kvOperationsAdaptiveGroups/kvStorageAdaptiveGroups/r2StorageAdaptiveGroups）、dimensions/sum/max 是選集欄位非引數、三種 filter 形式（date_geq/datetime_geq/datetimeHour_geq）、缺 dataset 回應＝零用量非錯誤、一支 token 綁一個帳號（Account→Analytics: Read 即可）。
+**預期結果**：`cf_accounts`（帳號+token，D1 儲存——Slack/email token 同款單真相模型，非 Worker secret）＋`cf_usage_state`（PK 前導 day_utc：poll 讀/admin 快照/保留清理全是前綴掃描——idx_logs 教訓設計期套用）兩表；`cfUsage.ts` registry（9 metrics×8 帳號）＋poller（allSettled 逐帳號隔離、CAS claim 恰一次告警、日內只升不降、gauge 跨日 carry-over、counter 跨日自然重置、無 recovery 告警——額度重置非事件）；警示走既有 dispatchAlert（critical 自動 email）。self-warning 轉換閘控（ok→fail 變化才寄一則，死 token 不洗版；全帳號失敗才 emailWorthy）。`/admin` 第五 tab「CF 用量」：▶ 立即輪詢（onboarding 驗 token 工具，回 polled/recorded/alerts/failures）、帳號 CRUD（token 遮罩、留空保留、32-hex server 端驗證）、今日快照（值/配額/%/預估 EOD/告警級）。**自身成本**：~80 rows read＋~80 rows written/poll×48 polls/day ≈ 3.8k+3.8k（0.08% 讀 / 3.8% 寫額度）；cron invocation 數不變（1440/day），GraphQL 查詢免費。
+**範圍**：`src/db.sql`（+2 表+1 partial index＋state 14 天保留清理；schema 註解禁分號——split(';') bootstrap 會炸，連帶 utils splitter 加固）、`src/services/cfUsage.ts`（新，~510 行）、`src/cron.ts`（30 分鐘閘＋獨立 try/catch——poll bug 永不觸碰 fail-dead 路徑，不變式 ①）、`src/lib/validate.ts`（isValidAccountId）、`src/routes/admin.ts`（+5 端點）、`src/views/adminViews.ts`（第五 tab）、`tests/`（cfUsage.test.ts 新 33 案：query 形狀/分類邊界/恰一次/跨日/gauge carry-over/失敗隔離/轉換閘；cron +2 半小時閘；admin +10 端點；utils fixtures）、`docs/usage.md`、`secrets-archive/SECRETS.md`（cf_accounts.api_token ×8 條目）。**無 Worker secret 變動**（token 走 D1，操作者 /admin 表單自貼）。
+**驗證**：`make ci` 全綠（tsc/lint/app pool 133/133/guards 21/21）。部署後線上驗證：`SELECT COUNT(*) FROM cf_usage_state WHERE day_utc=<today>` 首 poll 後 8×9=72；run 鈕連按兩次第二次 `alertsSent: 0`（exactly-once）；`wrangler tail` 跨半點無 error；次日 insights 監控自身增量 <400 rows/poll-day 預期。操作者後續：mint 6 支 token（runbook 見 SECRETS.md 條目）＋輪替洩漏的 CLOUDFLARE_API_TOKEN。
+
 ### [2026-09-11] D1 rows-read 新大戶 countRecentErrors 根治——(check_id, created_at) 複合索引取代單欄索引
 
 **目標**：消除 D1 rows-read 回歸大戶（操作者實察 1hr 837 queries / 1M rows read；insights 實證 24h 7.45M 中 **7.28M=97.7% 來自單一查詢**）——9/10 email 升級功能引入的 `countRecentErrors`（`src/services/logic.ts:43`，15min 滑窗 error 計數）每次執行全掃 `ek-gateway:jobs` 的 14,914-rows partition（504 次/日 × avg 14,445）。量級超過共享帳號免費額度 5M/day——與 9/7 cleanup 事故同失敗模式（watch-dog 燒光額度連坐 alliance-member），不同入口。

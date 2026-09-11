@@ -115,6 +115,60 @@ CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_checks_monitor_type ON checks(monitor, type) WHERE monitor = 1;
 
 -- ============================================================================
+-- CF Usage Monitoring Tables (2026-09-11)
+-- ============================================================================
+-- Passive quota monitor for all Cloudflare accounts the operator runs
+-- services on (born from two shared-account D1 quota exhaustion incidents:
+-- 2026-09-07 log cleanup ~4.1M rows/day, 2026-09-11 countRecentErrors
+-- ~7.3M rows/day — both discovered only after HTTP 500s). The poller hits
+-- the GraphQL Analytics API per account every 30 minutes — thresholds and
+-- semantics live in src/services/cfUsage.ts.
+
+-- One row per monitored CF account. api_token is an account-scoped
+-- Analytics-Read token stored in D1 — same single-truth-source model as the
+-- Slack/email tokens in settings (NOT a Worker secret — see SECRETS.md).
+CREATE TABLE IF NOT EXISTS cf_accounts (
+    -- CF account tag (32 hex chars, validated server-side)
+    account_id TEXT PRIMARY KEY,
+    -- Human-readable label (e.g. "Helperp prod")
+    label TEXT NOT NULL,
+    -- Analytics-Read API token (masked in admin UI, never echoed)
+    api_token TEXT NOT NULL,
+    -- Quota-table key ('free' | 'paid') — selects the metric quota set
+    plan TEXT DEFAULT 'free',
+    -- 0 = poller skips entirely (no fetch, no alerts — state rows retained)
+    enabled INTEGER DEFAULT 1,
+    -- Unix ts of last successful poll (0 = never — self-warning transition detection)
+    last_ok_at INTEGER DEFAULT 0,
+    -- Last poll failure reason (null = last poll ok)
+    last_error TEXT,
+    created_at INTEGER DEFAULT (unixepoch())
+);
+
+-- Per-(day, account, metric) usage snapshot + alert state machine.
+-- PK leads with day_utc: the per-poll read (WHERE day_utc = ?), the admin
+-- snapshot read, and the retention DELETE are all prefix scans — the
+-- idx_logs lesson (D1 rows-read discipline) applied at design time.
+CREATE TABLE IF NOT EXISTS cf_usage_state (
+    -- UTC quota day 'YYYY-MM-DD' (quota resets UTC 00:00 = 08:00 Taipei)
+    day_utc TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    -- Metric registry key (see METRICS in cfUsage.ts)
+    metric TEXT NOT NULL,
+    -- Latest measured value from GraphQL
+    value INTEGER DEFAULT 0,
+    -- Burn-rate projection to end of UTC day (counters only, elapsed >= 30min)
+    projected_eod INTEGER,
+    -- Alert dedup state: 0 none | 1 warning (60% / projection) | 2 critical (80%).
+    -- Monotonic within a day (only upgrades dispatch) — counters start each UTC
+    -- day at 0, gauges carry yesterday's level over (storage quotas don't reset).
+    alerted_level INTEGER DEFAULT 0,
+    updated_at INTEGER DEFAULT (unixepoch()),
+    PRIMARY KEY (day_utc, account_id, metric)
+);
+CREATE INDEX IF NOT EXISTS idx_cf_accounts_enabled ON cf_accounts(enabled) WHERE enabled = 1;
+
+-- ============================================================================
 -- Settings Table
 -- ============================================================================
 -- Application settings stored in database (replaces env vars)
