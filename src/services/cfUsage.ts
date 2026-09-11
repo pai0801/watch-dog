@@ -144,6 +144,14 @@ export const METRICS: Readonly<Record<string, MetricDef>> = {
   r2_objects: { label: 'R2 物件數', kind: 'gauge', quotas: {} },
 };
 
+/** Quota for a metric on a plan — 0 = record-only (no quota). Single
+ *  derivation shared by the poller thresholds, the admin snapshot table,
+ *  and the homepage CF pane (one implementation rule). */
+export function quotaFor(metric: string, plan: CfPlanId): number {
+  const def = METRICS[metric];
+  return def ? (def.quotas[plan] ?? 0) : 0;
+}
+
 // ===== Pure helpers (unit-tested directly) =====
 
 /** UTC quota day 'YYYY-MM-DD' (quota resets UTC 00:00 = 08:00 Taipei). */
@@ -394,7 +402,7 @@ async function pollAccount(
   const claimResultIdx: number[] = [];
   for (const [metricKey, def] of Object.entries(METRICS)) {
     const value = values.get(metricKey) ?? 0;
-    const quota = def.quotas[account.plan] ?? 0;
+    const quota = quotaFor(metricKey, account.plan);
     const cls = classifyMetric(def.kind, value, quota, elapsedSec);
     const currentLevel = storedLevels.get(metricKey) ?? 0;
 

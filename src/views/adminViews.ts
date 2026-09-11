@@ -11,7 +11,8 @@
 import { html, raw } from 'hono/html';
 import type { Check, Project } from '../types';
 import type { AllSettings } from '../services/settings';
-import { METRICS, type CfAccount } from '../services/cfUsage';
+import { METRICS, quotaFor, type CfAccount } from '../services/cfUsage';
+import { fmtMetricValue } from '../lib/format';
 
 export type AdminProject = Project & {
   checks: Check[];
@@ -33,23 +34,6 @@ export interface AdminCfData {
   usageToday: CfUsageStateRow[];
   dayUtc: string;
 }
-
-/** "1179 B" / "12.3 KiB" / "1.0 GiB" for the *_bytes storage gauges. */
-const fmtBytes = (n: number): string => {
-  if (n < 1024) return `${n} B`;
-  const units = ['KiB', 'MiB', 'GiB'];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-};
-
-/** Byte gauges get human units; everything else is a plain count. */
-const fmtMetricValue = (metric: string, n: number): string =>
-  metric.endsWith('_bytes') ? fmtBytes(n) : n.toLocaleString();
 
 /** Mask a secret for display: keep only the last 4 characters. */
 export function maskToken(token: string): string {
@@ -480,7 +464,7 @@ export const AdminPage = (
             }
             return rows.map((u) => {
               const def = METRICS[u.metric];
-              const quota = def ? (def.quotas[a.plan] ?? 0) : 0;
+              const quota = quotaFor(u.metric, a.plan);
               const pct = quota > 0 ? u.value / quota : null;
               const pctColor = pct !== null && pct >= 0.8 ? '#e74c3c' : pct !== null && pct >= 0.6 ? '#f39c12' : 'inherit';
               return html`<tr>
