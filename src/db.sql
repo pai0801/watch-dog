@@ -102,7 +102,13 @@ CREATE TABLE IF NOT EXISTS logs (
 -- Indexes
 -- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_checks_project ON checks(project_id);
-CREATE INDEX IF NOT EXISTS idx_logs_check_id ON logs(check_id);
+-- Composite (check_id, created_at): per-check queries filter a created_at
+-- window (escalation error count, admin log viewer). A check_id-only index
+-- made each a full partition scan — ek-gateway:jobs holds ~15k rows, so every
+-- escalated ok pulse read 14.4k rows (~7.3M rows/day, 2026-09-11). The
+-- composite prefix still covers the plain check_id deletes below.
+CREATE INDEX IF NOT EXISTS idx_logs_check_id_created_at ON logs(check_id, created_at);
+DROP INDEX IF EXISTS idx_logs_check_id;
 -- created_at index: the hourly 7-day log cleanup DELETEs by created_at range —
 -- without this, every cleanup run was a full-table scan (D1 rows-read quota burner).
 CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at);

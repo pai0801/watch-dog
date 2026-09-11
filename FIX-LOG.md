@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-11] D1 rows-read 新大戶 countRecentErrors 根治——(check_id, created_at) 複合索引取代單欄索引
+
+**目標**：消除 D1 rows-read 回歸大戶（操作者實察 1hr 837 queries / 1M rows read；insights 實證 24h 7.45M 中 **7.28M=97.7% 來自單一查詢**）——9/10 email 升級功能引入的 `countRecentErrors`（`src/services/logic.ts:43`，15min 滑窗 error 計數）每次執行全掃 `ek-gateway:jobs` 的 14,914-rows partition（504 次/日 × avg 14,445）。量級超過共享帳號免費額度 5M/day——與 9/7 cleanup 事故同失敗模式（watch-dog 燒光額度連坐 alliance-member），不同入口。
+**原因**：`idx_logs_check_id` 只有 `check_id` 單欄——查詢 `WHERE check_id=? AND status='error' AND created_at>=?` 走該索引後**逐列讀表過濾 created_at**。ek-gateway 單 check 多工複用（每 job 每分鐘 pulse 同一 check）使其佔滿 logs 表（14,914/14,916 rows）。風暴間歇期 `escalated=1`＋ok pulse 每分鐘進站（FIX-LOG #19 記載的預期形態）→ **每個 ok pulse 都付一次全掃**。EXPLAIN 指紋級佐證：`SEARCH logs USING INDEX idx_logs_check_id (check_id=?)`，連 27 分鐘小視窗查詢也讀滿 ~14k。
+**預期結果**：`idx_logs_check_id_created_at (check_id, created_at)` 複合索引讓滑窗計數走範圍掃描（僅讀視窗內列數）；前綴同時覆蓋純 check_id 的 DELETE（config replace-set、admin 清 log）與 admin log 檢視器（`WHERE check_id=? ORDER BY created_at DESC LIMIT ?` 原本掃全 partition 再排序，順帶受益）；舊單欄索引完全冗餘 → DROP（索引數淨持平、寫入放大不增）。查詢文本零變動——planner 自動改選新索引，無程式碼變動、無 worker deploy。
+**範圍**：`src/db.sql`（+複合索引＋DROP 舊索引，皆冪等）。remote D1 已直下（`CREATE INDEX IF NOT EXISTS` + `DROP INDEX IF EXISTS`，操作者批准 2026-09-11）。
+**驗證**：remote `meta.rows_read` 前後實測（dev-brain 教訓：單查詢成本以此為 ground truth，insights 日均會稀釋）——**BEFORE 14,925 → AFTER 33（452×，結果一致 n=3）**；`EXPLAIN QUERY PLAN` 改走 `idx_logs_check_id_created_at (check_id=? AND created_at>?)` ✓；`make ci` 全綠（tsc ✓ / lint ✓ / app pool 98/98 ✓ / guards 21/21 ✓ / §L §M ✓）。日總量預期 7.28M → ~15k（504 次 × ~30 rows）；insights 指紋次日複查 avgRowsRead 降位。9/7 修復確認持續有效（hourly DELETE 24h 僅讀 10 rows）。
+
 ### [2026-09-10] ok-pulse 併發覆寫 race 根治（TODO-REVIEW #19）——error-sticky CAS＋心跳降級寫
 
 **目標**：持舊快照的 ok pulse 不得洗掉剛落地的 error 狀態（2026-09-10 事件 04:15→04:16 實證：error 寫入後同秒交錯的 ok 把 `status/failure_count` 蓋回 ok/0，該 error 集數的 recovery 從未發出＝「恢復」機率隨機化）。
