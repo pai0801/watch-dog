@@ -43,6 +43,7 @@ export async function resetDb(): Promise<void> {
     DB.prepare('DELETE FROM settings'),
     DB.prepare('DELETE FROM cf_accounts'),
     DB.prepare('DELETE FROM cf_usage_state'),
+    DB.prepare('DELETE FROM cf_resource_names'),
   ]);
 }
 
@@ -243,3 +244,28 @@ export async function getCfAccount(accountId: string): Promise<CfAccount | null>
 /** UTC noon on a fixed day — deterministic dayUtc ('2026-09-11') and
  *  elapsedSec (43200) for projection math. */
 export const CF_TEST_NOW = Date.UTC(2026, 8, 11, 12, 0, 0); // month 8 = September
+
+export async function seedResourceName(
+  accountId: string,
+  resourceType: string,
+  resourceId: string,
+  name: string,
+  updatedAt?: number
+): Promise<void> {
+  await DB.prepare(
+    'INSERT INTO cf_resource_names (account_id, resource_type, resource_id, name, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (account_id, resource_type, resource_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at'
+  )
+    .bind(accountId, resourceType, resourceId, name, updatedAt ?? nowSec())
+    .run();
+}
+
+/** REST list endpoints for name resolution (msw ignores query strings —
+ *  handlers match on these paths, the ?per_page=100 is appended by prod code). */
+export const CF_REST_BASE = 'https://api.cloudflare.com/client/v4';
+export const cfD1ListUrl = (accountId: string): string => `${CF_REST_BASE}/accounts/${accountId}/d1/database`;
+export const cfKvListUrl = (accountId: string): string => `${CF_REST_BASE}/accounts/${accountId}/storage/kv/namespaces`;
+
+/** Bearer token for GET /api/cf-usage — value MUST equal the binding in
+ *  vitest.config.ts miniflare bindings (same literal-sync pattern as the
+ *  ADMIN_* test pair). */
+export const TEST_USAGE_API_TOKEN = 'test-usage-api-token';

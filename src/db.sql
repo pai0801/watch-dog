@@ -168,6 +168,29 @@ CREATE TABLE IF NOT EXISTS cf_usage_state (
 );
 CREATE INDEX IF NOT EXISTS idx_cf_accounts_enabled ON cf_accounts(enabled) WHERE enabled = 1;
 
+-- Per-resource display names for the on-demand detail fragment (2026-09-12).
+-- GraphQL analytics dimensions give Workers, Pages and R2 real names for
+-- free (scriptName, bucketName) but D1 databaseId and KV namespaceId are
+-- opaque ids — this table maps them to the names the REST list endpoints
+-- return. Refreshed at most daily per (account, resource_type) by the
+-- 30-min poller (refreshResourceNamesIfNeeded in cfResources ts) and read
+-- by the detail fragment and the usage API. No extra index needed: every
+-- read is a full scan of one account's few dozen rows and the PK prefix
+-- (account_id, resource_type) already covers the refresh gate query
+CREATE TABLE IF NOT EXISTS cf_resource_names (
+    -- CF account tag (32 hex) — joins cf_accounts
+    account_id TEXT NOT NULL,
+    -- Which REST list the row came from: 'd1' or 'kv'
+    resource_type TEXT NOT NULL,
+    -- database uuid (D1, hyphenated) or namespace id normalized to bare hex (KV)
+    resource_id TEXT NOT NULL,
+    -- Display name from the REST list (database name or namespace title)
+    name TEXT NOT NULL,
+    -- Unix ts of the refresh that wrote this row (replace-set bookkeeping)
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (account_id, resource_type, resource_id)
+);
+
 -- ============================================================================
 -- Settings Table
 -- ============================================================================
