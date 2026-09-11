@@ -4,6 +4,7 @@
 import { Hono } from 'hono';
 import type { AppBindings, Check, Project } from '../types';
 import { getTodayCfUsage } from '../services/cfUsage';
+import { getResourceDetailByLabel } from '../services/cfResources';
 import { Layout } from '../views/layout';
 import {
   CfUsagePane,
@@ -11,8 +12,30 @@ import {
   ErrorState,
   ProjectGrid,
 } from '../views/dashboard';
+import { CfDetailError, CfResourceDetailFragment } from '../views/cfDetail';
 
 const dashboard = new Hono<{ Bindings: AppBindings }>();
+
+/**
+ * GET /cf-usage/detail?label=…
+ * Public HTML fragment for the card expand area (htmx toggle-triggered).
+ * Always 200 — errors become an inline panel because htmx never swaps
+ * non-2xx responses (a 500 would strand the placeholder text forever).
+ * Label-gated and id-free by construction (ResourceDetail has no id field).
+ */
+dashboard.get('/cf-usage/detail', async (c) => {
+  const label = c.req.query('label') ?? '';
+  if (!label) return c.html(CfDetailError('缺少 label 參數'));
+  try {
+    const detail = await getResourceDetailByLabel(c.env.DB, label);
+    if (!detail) return c.html(CfDetailError(`找不到啟用中的帳號「${label}」`));
+    return c.html(CfResourceDetailFragment(detail));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`CF detail fragment error (${label}):`, error);
+    return c.html(CfDetailError(message.slice(0, 200)));
+  }
+});
 
 /**
  * GET /

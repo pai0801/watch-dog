@@ -7,8 +7,22 @@
 // seeded ids + a generic 32-hex regex over the whole document).
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { SELF } from 'cloudflare:test';
-import { DB, reapplySchema, resetDb, seedCfAccount, seedCheck, seedProject, TEST_CF } from './utils';
+import { resetResourceCaches } from '../src/services/cfResources';
+import { network } from './network';
+import {
+  cfD1ListUrl,
+  cfKvListUrl,
+  DB,
+  reapplySchema,
+  resetDb,
+  seedCfAccount,
+  seedCheck,
+  seedProject,
+  seedResourceName,
+  TEST_CF,
+} from './utils';
 
 const todayUtc = (): string => new Date().toISOString().slice(0, 10);
 
@@ -131,5 +145,103 @@ describe('GET / — dual-tab homepage with CF usage pane', () => {
     } finally {
       await reapplySchema(); // restore the dropped table
     }
+  });
+});
+
+// ---- resource detail fragment (Task 6) ----
+
+const detailFixture = () => ({
+  data: {
+    viewer: {
+      accounts: [
+        {
+          wkr: [
+            { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1000, errors: 2 } },
+            { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 500, errors: 0 } },
+          ],
+          pgs: [{ dimensions: { scriptName: 'pages-worker--13581012-production' }, sum: { requests: 300 } }],
+          d1: [
+            { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 4_000_000, rowsWritten: 10_000 } },
+            { dimensions: { databaseId: '99999999-8888-7777-6666-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } },
+          ],
+          kvo: [{ dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789' }, sum: { requests: 42 } }],
+          kvs: [{ dimensions: { namespaceId: 'ABCDEF01-2345-6789-ABCD-EF0123456789' }, max: { byteCount: 1024, keyCount: 7 } }],
+          r2s: [{ dimensions: { bucketName: 'media-bucket' }, max: { payloadSize: 2_000_000_000, objectCount: 120 } }],
+        },
+      ],
+    },
+  },
+});
+const REST_EMPTY = { success: true, result: [] };
+
+describe('GET /cf-usage/detail — resource detail fragment', () => {
+  beforeEach(async () => {
+    await resetDb();
+    resetResourceCaches();
+    network.use(
+      http.post(TEST_CF.gqlUrl, () => HttpResponse.json(detailFixture())),
+      http.get(cfD1ListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY)),
+      http.get(cfKvListUrl(TEST_CF.accountId), () => HttpResponse.json(REST_EMPTY))
+    );
+  });
+
+  it('renders named groups per resource type with resolved names and usage', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    await seedResourceName(TEST_CF.accountId, 'd1', '11111111-2222-3333-4444-555555555555', 'Production DB');
+    await seedResourceName(TEST_CF.accountId, 'kv', 'abcdef0123456789abcdef0123456789', 'site-cache');
+
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    for (const title of ['Workers', 'Pages', 'D1 Databases', 'KV Namespaces', 'R2 Buckets']) {
+      expect(html).toContain(title);
+    }
+    // workers: dimension value is the name; adaptive rows accumulated
+    expect(html).toContain('watch-dog');
+    expect(html).toContain('1,500');
+    // pages: CF internal deployment name shown as-is (documented trade-off)
+    expect(html).toContain('pages-worker--13581012-production');
+    // resolved names win
+    expect(html).toContain('Production DB');
+    expect(html).toContain('site-cache');
+    // r2 bucket name
+    expect(html).toContain('media-bucket');
+  });
+
+  it('merges KV ops + storage into one row (single site-cache occurrence, KiB formatting)', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    await seedResourceName(TEST_CF.accountId, 'kv', 'abcdef0123456789abcdef0123456789', 'site-cache');
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
+    const html = await res.text();
+    expect((html.match(/site-cache/g) ?? []).length).toBe(1);
+    expect(html).toContain('KiB'); // 1024 bytes → human-readable
+    expect(html).toContain('42');  // kv_ops
+  });
+
+  it('NEVER leaks 32-hex ids (unresolved resources degrade to 8-char short ids)', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
+    const html = await res.text();
+    expect(html).toContain('99999999…'); // unresolved d1 → short id
+    expect(html).toContain('abcdef01…'); // unresolved kv → short id
+    expect(html).not.toContain(TEST_CF.accountId);
+    expect(html.match(/[0-9a-f]{32}/)).toBeNull();
+  });
+
+  it('returns 200 + a friendly panel for an unknown label (htmx never swaps non-2xx)', async () => {
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=ghost');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('找不到啟用中的帳號');
+  });
+
+  it('returns 200 + an error panel when the upstream fetch fails (degrades alone)', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    network.use(http.post(TEST_CF.gqlUrl, () => new HttpResponse(null, { status: 500 })));
+    const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('資源明細載入失敗');
+    expect(html).toContain('HTTP 500');
   });
 });

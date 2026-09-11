@@ -259,6 +259,78 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
       cursor: help;
       font-size: 0.85rem;
     }
+    .cf-account-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .cf-warn-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.1rem 0.55rem;
+      background: rgba(243, 156, 18, 0.15);
+      color: #f39c12;
+      border-radius: 1rem;
+      font-size: 0.7rem;
+      white-space: nowrap;
+    }
+    .cf-expand {
+      margin-top: 0.75rem;
+      border-top: 1px solid #2e2e2e;
+      padding-top: 0.5rem;
+    }
+    .cf-expand summary {
+      cursor: pointer;
+      font-size: 0.8rem;
+      color: #3498db;
+      user-select: none;
+    }
+    .cf-detail {
+      margin-top: 0.5rem;
+    }
+    .cf-detail-meta {
+      font-size: 0.75rem;
+      color: #888;
+      margin: 0.25rem 0 0.5rem;
+    }
+    .cf-detail-error {
+      color: #e74c3c;
+      font-size: 0.85rem;
+    }
+    .cf-res-group {
+      margin-bottom: 0.9rem;
+    }
+    .cf-res-title {
+      font-size: 0.8rem;
+      color: #bbb;
+      margin: 0 0 0.3rem;
+    }
+    .cf-res-table {
+      width: 100%;
+      font-size: 0.78rem;
+      border-collapse: collapse;
+    }
+    .cf-res-table th,
+    .cf-res-table td {
+      padding: 0.25rem 0.4rem;
+      text-align: right;
+      border-bottom: 1px solid #2a2a2a;
+      font-variant-numeric: tabular-nums;
+    }
+    .cf-res-table th {
+      color: #888;
+      font-weight: 500;
+    }
+    .cf-res-table th:first-child,
+    .cf-res-table td:first-child {
+      text-align: left;
+    }
+    .cf-res-name {
+      max-width: 14rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     [x-cloak] {
       display: none !important;
     }
@@ -360,6 +432,11 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
       /* CF pane: single column on mobile */
       .cf-grid {
         grid-template-columns: 1fr;
+      }
+
+      /* CF detail tables: narrower name column on phones */
+      .cf-res-name {
+        max-width: 10rem;
       }
 
       /* Project card: reduce padding */
