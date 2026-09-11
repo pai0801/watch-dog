@@ -90,12 +90,11 @@ describe('GET / — dual-tab homepage with CF usage pane', () => {
 
     const res = await SELF.fetch('http://localhost/');
     const html = await res.text();
-    // Counts anchor on the rendered class ATTRIBUTE ('class="…'), because the
-    // page ships its own <style> block where the same names appear as CSS
-    // selectors (.cf-warn etc.) and would pollute bare-substring counts.
-    expect((html.match(/cf-bar-fill"/g) ?? []).length).toBe(1); // plain fill: attr ends right after the base class
+    // face renders the top (danger) metric; details re-renders all three —
+    // the danger line therefore appears TWICE, warn/plain once (details only)
+    expect((html.match(/cf-bar-fill"/g) ?? []).length).toBe(1);
     expect((html.match(/cf-warn"/g) ?? []).length).toBe(1);
-    expect((html.match(/cf-danger"/g) ?? []).length).toBe(1);
+    expect((html.match(/cf-danger"/g) ?? []).length).toBe(2);
   });
 
   it('marks projected-over-quota rows with stripes + warning flag + projected EOD text', async () => {
@@ -262,5 +261,40 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('今日無任何資源用量');
+  });
+});
+
+describe('homepage card sorting + collapsed face (Task 7)', () => {
+  it('sorts cards by max quota ratio desc (High Use 90% before Low Use 20%)', async () => {
+    await seedCfAccount({ label: 'Low Use' });
+    await seedUsage(TEST_CF.accountId, 'd1_rows_read', 1_000_000); // 20%
+    await seedCfAccount({ account_id: TEST_CF.accountIdB, api_token: TEST_CF.tokenB, label: 'High Use' });
+    await seedUsage(TEST_CF.accountIdB, 'd1_rows_written', 90_000); // 90%
+    const res = await SELF.fetch('http://localhost/');
+    const html = await res.text();
+    expect(html.indexOf('High Use')).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('High Use')).toBeLessThan(html.indexOf('Low Use'));
+  });
+
+  it('face shows the warn chip and the details/fragment wiring', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    await seedUsage(TEST_CF.accountId, 'd1_rows_written', 65_000); // 65% → 1 項 ≥60%
+    const res = await SELF.fetch('http://localhost/');
+    const html = await res.text();
+    expect(html).toContain('1 項 ≥60%');
+    expect(html).toContain('cf-warn-chip');
+    expect(html).toContain('全部指標與資源明細');
+    expect(html).toContain('hx-get="/cf-usage/detail?label=Test%20Account"');
+    expect(html).toContain('hx-trigger="toggle from:closest details once"');
+  });
+
+  it('pauses the 30s auto-reload while a detail is open (hyperscript guard)', async () => {
+    await seedCfAccount({ label: 'Test Account' });
+    await seedUsage(TEST_CF.accountId, 'd1_rows_read', 1);
+    const res = await SELF.fetch('http://localhost/');
+    const html = await res.text();
+    expect(html).toContain(
+      "if no document.querySelector('details.cf-expand[open]') then location.reload()"
+    );
   });
 });

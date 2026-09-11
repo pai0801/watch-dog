@@ -241,12 +241,14 @@ export interface CfAccountCardData {
   last_ok_at: number;
   metrics: CfMetricRowData[];
   /** Metric row with the highest value/quota ratio (quota-less rows rank 0);
-   *  undefined when no metric has a quota (or metrics is empty) — the view
-   *  falls back to the first row. */
+   *  undefined when no metric has a quota, metrics is empty, or every
+   *  quota'd ratio is exactly 0 (early UTC day — the strict > never beats
+   *  the initial 0) — the view falls back to the first row. */
   topMetric?: CfMetricRowData;
   /** Highest ratio across the account's metrics (0 when none have quotas). */
   maxRatio: number;
-  /** Metrics at or above WARN_THRESHOLD (the amber chip count). */
+  /** Warn-or-worse count: metrics at ratio >= WARN_THRESHOLD (0.6), red
+   *  (>=0.8) rows included — the number the amber chip shows. */
   warnCount: number;
 }
 

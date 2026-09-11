@@ -87,7 +87,13 @@ export const DashboardContent = (
   </div>
   <div role="tabpanel" x-show="tab === 'status'">
     ${StatsCards(stats)}
-    <div id="dashboard" hx-get="/" hx-trigger="every 30s" hx-swap="none" _="on htmx:afterRequest then location.reload()">
+    <div
+      id="dashboard"
+      hx-get="/"
+      hx-trigger="every 30s"
+      hx-swap="none"
+      _="on htmx:afterRequest if no document.querySelector('details.cf-expand[open]') then location.reload()"
+    >
       ${projectGrid}
     </div>
   </div>
@@ -163,14 +169,33 @@ const CfMetricLine = (row: CfMetricRowData, plan: CfPlanId) => {
   `;
 };
 
-/** Account card: label + plan badge + all metric lines (registry order). */
+/** Account card: collapsed face = header + topMetric (the highest quota
+ *  ratio line) + amber chip (N 項 ≥60%); native <details> expands to all
+ *  metric lines + the htmx on-demand resource detail fragment. The face
+ *  metric duplicates inside <details> on purpose — the face never moves,
+ *  the details section is the complete registry view. */
 const CfAccountCard = (card: CfAccountCardData) => html`
 <div class="cf-account-card">
   <div class="cf-account-header">
     <h3>${card.label}</h3>
-    <span class="cf-plan-badge">${card.plan}</span>
+    <div class="cf-account-header-right">
+      ${card.warnCount > 0 ? html`<span class="cf-warn-chip">${card.warnCount} 項 ≥60%</span>` : ''}
+      <span class="cf-plan-badge">${card.plan}</span>
+    </div>
   </div>
-  ${card.metrics.map((row) => CfMetricLine(row, card.plan))}
+  ${CfMetricLine(card.topMetric ?? card.metrics[0], card.plan)}
+  <details class="cf-expand">
+    <summary>全部指標與資源明細</summary>
+    ${card.metrics.map((row) => CfMetricLine(row, card.plan))}
+    <div
+      class="cf-detail"
+      hx-get="/cf-usage/detail?label=${encodeURIComponent(card.label)}"
+      hx-trigger="toggle from:closest details once"
+      hx-swap="innerHTML"
+    >
+      展開後載入資源明細…
+    </div>
+  </details>
 </div>
 `;
 
