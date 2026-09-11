@@ -546,13 +546,18 @@ api.get('/api/cf-usage', async (c) => {
     if (wantDetail) {
       entry.detail = null;
       try {
-        // card.label (DB-sourced), NEVER the ?account= query param — a
-        // caller-controlled label would bypass the 100-char label cap that
-        // guards the label→account cache (cache-spray vector, Task 6 review).
+        // card.label (DB-sourced from cf_accounts), NEVER the ?account=
+        // query param — that distinction IS this endpoint's cache-spray
+        // defense: accountByLabelCache keys stay bounded by the operator's
+        // DB label set, not by caller input. (The fragment route separately
+        // caps its query label at 100 chars — dashboard.ts; no such cap is
+        // needed here because no caller-controlled label reaches the cache.)
         const detail = await getResourceDetailByLabel(c.env.DB, card.label);
         entry.detail = detail ? toApiDetail(detail) : null;
       } catch (error) {
-        entry.detail_error = error instanceof Error ? error.message : String(error);
+        // Bound upstream-controlled text entering the response — same 200-char
+        // truncation as the fragment route's error panel (dashboard.ts).
+        entry.detail_error = (error instanceof Error ? error.message : String(error)).slice(0, 200);
       }
     }
     accounts.push(entry);
