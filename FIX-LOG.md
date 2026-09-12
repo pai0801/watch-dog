@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-09-12] 存量債清理輪 #20–#26——timingSafeEqual 位元組長度、label 唯一性、admin 文件、dev-tunnel kill_port、final-review 三 Nit
+
+**目標**：清償 TODO-REVIEW #20–#26（全輪 final review APPROVED 後操作者指示 go 的存量債批次；#20–#22 為 Task 8/9 quality review 登記、#23 為 Task 10 實踩、#24–#26 為 final review Nit）。
+**原因**：#20 是 auth 面真缺陷（未認證輸入可觸發 500——非 bypass，fail-closed 語義完好，但三個 Bearer 端點共用）；#21 是資料完整性（同 label 兩帳號在首頁分組與 API 回應合併成歧義卡）；#22 文件誤導（/admin 認證描述指向已除役 ADMIN_TOKEN）；#23 本地開發腳本假成功（Task 10 實踩：殘留 workerd 佔 port，新 wrangler 綁 port 失敗退出，curl 探測打到舊 server）；#24–#26 純視覺/註解/測試補強。
+**預期結果**：#20 `timingSafeEqual` 改先 `TextEncoder` 編碼、`byteLength` 不等提前 `return false`（XOR fallback 同步位元組化）——多位元組等 UTF-16 長度 token 得 401 而非 TypeError 500；#21 admin upsert 前置 `SELECT 1 FROM cf_accounts WHERE label = ? AND account_id != ?`（self-exclusion：原 label 重存通過），違規 red fragment；#22 docs/api.md 改寫為 ADMIN_ACCOUNT/ADMIN_PASSWORD Basic Auth 對＋註記 ADMIN_TOKEN 已除役；#23 kill_port 改 `echo "$pids" | xargs -r kill`（-9 同）＋複查後才宣稱「已釋放」（殘留 return 1 讓 set -e 如實中止）＋ngrok `"$port"`→`"$PORT"`＋Network IP 改 `ip -4 addr` 實測（NETWORK_IP 可覆寫）；#24 fragment 成功/錯誤 root 拔除 `cf-detail` class（trigger 容器已帶，巢狀疊雙倍 margin）；#25 註解改「bounds key SIZE」語義；#26 fragment 錯誤面板補 32-hex regex 斷言（API 側 detail_error 已由 detail=1 測試的全回應 JSON 斷言覆蓋，查明後不重複加）。
+**範圍**：`src/lib/auth.ts`、`src/routes/admin.ts`、`src/views/cfDetail.ts`、`src/routes/dashboard.ts`（註解）、`dev-tunnel.sh`、`docs/api.md`；測試 `tests/api.test.ts`（+#20 回歸）、`tests/admin.test.ts`（+#21 三路回歸）、`tests/dashboard.test.ts`（#26 斷言）。commit 鏈：ecd31f0（#20）→f7b769c（#21）→ff1c159（#22）→d15e549（#23）→70aab73（#24）→9382fe9（#25）→6a38b48（#26）。
+**驗證**：`make ci` 全綠（tsc ✓ / ESLint ✓ / app pool **176/176** ✓（+2 新測試）/ guards 21/21 ✓ / §L ✓ / §M 僅既有 legacy warns）。#20 TDD 紅→綠實證（先 fail `expected 500 to be 401` 後過）；#23 三態實測：空 port=「可用」、TERM 回應 python server=「已釋放」、TERM 免疫探針（SIG_IGN＋bind 18789）=「強制停止」→-9 後 lsof 複查 port-free；Network IP 實測輸出 192.168.1.117（非舊主機 .200）。
+
 ### [2026-09-12] CF 逐資源明細＋對外唯讀用量 API——首頁卡折疊/排序/展開＋GET /api/cf-usage（Bearer token）
 
 **目標**：plan `docs/plans/2026-09-12-cf-resource-detail-api-plan.md`（tier major 全 gate；設計 `docs/plans/2026-09-11-cf-resource-detail-api-design.md`）。兩面：(1) 首頁 CF 帳號卡升級——折疊面只列最緊指標（最高配額比）＋「N 項 ≥60%」琥珀 chip、卡排序 maxRatio 降序（label 升序 tiebreak）、native `<details>` 展開 htmx on-demand 逐資源明細（Workers/Pages/D1/KV/R2 六 dataset，未解析名稱退化 8 字短 id）；(2) 對外唯讀用量 API `GET /api/cf-usage`（靜態 Bearer `CF_USAGE_API_TOKEN`，fail-closed）——跨專案 consumer（其他 repo 的 Claude Code／自動化）機讀今日配額用量，`detail=1` 附逐資源明細。
