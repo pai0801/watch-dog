@@ -246,6 +246,9 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     const html = await res.text();
     expect(html).toContain('資源明細載入失敗');
     expect(html).toContain('HTTP 500');
+    // no id leak on the error path either (TODO #26) — the panel carries
+    // upstream-controlled text sliced to 200 chars, none of it ours to echo
+    expect(html.match(/[0-9a-f]{32}/)).toBeNull();
   });
 
   it('guards the empty label and the over-long label (no service call)', async () => {
