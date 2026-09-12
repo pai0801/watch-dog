@@ -22,8 +22,10 @@ const dashboard = new Hono<{ Bindings: AppBindings }>();
  * Always 200 — errors become an inline panel because htmx never swaps
  * non-2xx responses (a 500 would strand the placeholder text forever).
  * Label-gated and id-free by construction (ResourceDetail has no id field).
- * Labels are capped at 100 chars: every unique label otherwise becomes a
- * never-evicted accountByLabelCache key (per-isolate cache-spray guard).
+ * Labels are capped at 100 chars to bound the size of each never-evicted
+ * accountByLabelCache key (per-isolate). Note this bounds key SIZE, not the
+ * count of distinct keys — a per-isolate cache can still grow with the
+ * number of distinct probed labels (memory only; accepted for this system).
  */
 dashboard.get('/cf-usage/detail', async (c) => {
   const label = c.req.query('label') ?? '';
