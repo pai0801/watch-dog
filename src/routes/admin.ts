@@ -793,6 +793,17 @@ admin.post('/admin/cf-usage/accounts', rejectJsonBody, async (c) => {
     if (plan !== 'free' && plan !== 'paid') {
       return c.html(cfRedFragment('Plan 必須是 free 或 paid'));
     }
+    // Label is the account's public identity (homepage cards, /api/cf-usage
+    // grouping, detail fragment lookup) — duplicates merge two accounts into
+    // one card with interleaved metrics. Server-side uniqueness check
+    // (TODO #21; self-excluded so re-saving an account's own label passes).
+    const labelTaken = await db
+      .prepare('SELECT 1 FROM cf_accounts WHERE label = ? AND account_id != ?')
+      .bind(label, accountId)
+      .first();
+    if (labelTaken) {
+      return c.html(cfRedFragment(`Label「${label}」已被其他帳號使用——label 是身分識別，務必唯一`));
+    }
 
     const existing = await db
       .prepare('SELECT api_token FROM cf_accounts WHERE account_id = ?')

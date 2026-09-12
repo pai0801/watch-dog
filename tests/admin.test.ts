@@ -562,6 +562,27 @@ describe('CF usage monitor endpoints', () => {
     expect(await shortToken.text()).toContain('太短');
   });
 
+  it('rejects a label already used by another account (TODO #21 regression)', async () => {
+    await seedCfAccount({ label: 'Taken Label' });
+    const otherId = 'b'.repeat(32);
+
+    // Create path: duplicate label on a different account → red fragment, no row.
+    const create = await post(`account_id=${otherId}&label=Taken+Label&api_token=${TEST_CF.token}&plan=free`);
+    expect(await create.text()).toContain('已被其他帳號使用');
+    expect(await getCfAccount(otherId)).toBeNull();
+
+    // Update path: renaming account A to account B's label → rejected.
+    await seedCfAccount({ account_id: otherId, label: 'Other Account' });
+    const rename = await post(`account_id=${otherId}&label=Taken+Label&api_token=&plan=free`);
+    expect(await rename.text()).toContain('已被其他帳號使用');
+    expect((await getCfAccount(otherId))?.label).toBe('Other Account');
+
+    // Self-exclusion: re-saving with the account's own label still works.
+    const self = await post(`account_id=${TEST_CF.accountId}&label=Taken+Label&api_token=&plan=free`);
+    expect(await self.text()).toContain('帳號已儲存');
+    expect((await getCfAccount(TEST_CF.accountId))?.label).toBe('Taken Label');
+  });
+
   it('rejects JSON bodies with 415 (WD-03 guard)', async () => {
     const res = await SELF.fetch('http://localhost/admin/cf-usage/accounts', {
       method: 'POST',
