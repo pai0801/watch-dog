@@ -425,6 +425,16 @@ describe('GET /api/cf-usage', () => {
     expect(res.status).toBe(401);
   });
 
+  it('rejects a multi-byte token with 401, not a 500 (TODO #20 regression)', async () => {
+    // Same UTF-16 length as the secret (20 code units) but 'ê' is 2 UTF-8
+    // bytes → buffers reach timingSafeEqual with unequal byteLength. The old
+    // UTF-16 .length guard passed them through and crypto.subtle threw.
+    const res = await SELF.fetch('http://localhost/api/cf-usage', {
+      headers: { Authorization: 'Bearer têst-usage-api-token' },
+    });
+    expect(res.status).toBe(401);
+  });
+
   it('returns per-account metrics with quota/pct and sorts by max ratio desc', async () => {
     await seedCfAccount({ label: 'Low Use' });
     await seedUsageRow(TEST_CF.accountId, 'd1_rows_read', 1_000_000); // 20%

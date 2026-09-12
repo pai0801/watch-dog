@@ -10,24 +10,28 @@ import type { AppBindings, Project } from '../types';
  * Uses the Workers-specific `crypto.subtle.timingSafeEqual` when available,
  * falling back to a manual XOR loop (constant-time for equal lengths).
  * Length mismatch returns early — token length is not treated as secret.
+ *
+ * Lengths are compared in **bytes** (UTF-8): crypto.subtle.timingSafeEqual
+ * requires equal byteLength, so a UTF-16-only guard lets a multi-byte token
+ * of equal code-unit length throw a TypeError (→ 500) instead of returning
+ * false (TODO #20).
  */
 export function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-
   const subtle = crypto.subtle as SubtleCrypto & {
     timingSafeEqual?: (a: ArrayBuffer, b: ArrayBuffer) => boolean;
   };
+  const encoder = new TextEncoder();
+  const aBuf = encoder.encode(a);
+  const bBuf = encoder.encode(b);
+  if (aBuf.byteLength !== bBuf.byteLength) return false;
+
   if (typeof subtle.timingSafeEqual === 'function') {
-    const encoder = new TextEncoder();
-    return subtle.timingSafeEqual(
-      encoder.encode(a).buffer as ArrayBuffer,
-      encoder.encode(b).buffer as ArrayBuffer
-    );
+    return subtle.timingSafeEqual(aBuf.buffer as ArrayBuffer, bBuf.buffer as ArrayBuffer);
   }
 
   let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < aBuf.length; i++) {
+    diff |= aBuf[i] ^ bBuf[i];
   }
   return diff === 0;
 }
