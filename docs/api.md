@@ -15,8 +15,10 @@ Authorization: Bearer your-project-token-here
 
 Each project has its own unique token, which you can generate in the Admin Dashboard.
 
-The `/admin` dashboard is separate: it sits behind HTTP Basic Auth where the
-password is the `ADMIN_TOKEN` Worker secret (username is ignored).
+The `/admin` dashboard is separate: it sits behind HTTP Basic Auth — an
+account/password pair from the `ADMIN_ACCOUNT` / `ADMIN_PASSWORD` Worker
+secrets (see README "Admin credentials"). The legacy `ADMIN_TOKEN` secret is
+retired and no longer read.
 
 ---
 
