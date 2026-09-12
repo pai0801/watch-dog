@@ -283,6 +283,27 @@ describe('homepage card sorting + collapsed face (Task 7)', () => {
     expect(html.indexOf('High Use')).toBeLessThan(html.indexOf('Low Use'));
   });
 
+  it('R2 storage never drives ranking: no float-up, no face takeover, no amber-chip count', async () => {
+    await seedCfAccount({ label: 'R2 Heavy' });
+    await seedUsage(TEST_CF.accountId, 'd1_rows_read', 500_000); // 10% — its rankable top
+    await seedUsage(TEST_CF.accountId, 'r2_storage_bytes', 9_600_000_000); // 89% of 10 GiB — unranked
+    await seedCfAccount({ account_id: TEST_CF.accountIdB, api_token: TEST_CF.tokenB, label: 'D1 Real' });
+    await seedUsage(TEST_CF.accountIdB, 'd1_rows_written', 30_000); // 30% — outranks 10%
+
+    const res = await SELF.fetch('http://localhost/');
+    const html = await res.text();
+    // card order follows rankable ratios only (30% > 10%) — the 89% gauge
+    // must not float R2 Heavy above D1 Real
+    expect(html.indexOf('D1 Real')).toBeLessThan(html.indexOf('R2 Heavy'));
+    // R2 Heavy's collapsed face shows its D1 line; R2 storage only appears
+    // later inside <details> (R2 Heavy sorts last, so the slice is its card)
+    const card = html.slice(html.indexOf('R2 Heavy'));
+    expect(card.indexOf('D1 rows 讀取')).toBeGreaterThanOrEqual(0);
+    expect(card.indexOf('D1 rows 讀取')).toBeLessThan(card.indexOf('R2 儲存量'));
+    // the 89% R2 row does not count into any ≥60% amber chip
+    expect(html).not.toContain('項 ≥60%');
+  });
+
   it('face shows the warn chip and the details/fragment wiring', async () => {
     await seedCfAccount({ label: 'Test Account' });
     await seedUsage(TEST_CF.accountId, 'd1_rows_written', 65_000); // 65% → 1 項 ≥60%

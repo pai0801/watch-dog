@@ -131,6 +131,12 @@ interface MetricDef {
   label: string;
   kind: MetricKind;
   quotas: Partial<Record<CfPlanId, number>>;
+  /** Recorded, alerted and displayed — but never drives card ranking
+   *  (maxRatio / topMetric / warnCount). R2 storage is an ever-growing gauge
+   *  whose cap bills rather than breaks service, so ranking on it floats
+   *  quiet accounts to the top of the pane and steals the collapsed face
+   *  from real quota signals (operator decision 2026-09-12). */
+  unranked?: boolean;
 }
 
 export const METRICS: Readonly<Record<string, MetricDef>> = {
@@ -141,7 +147,7 @@ export const METRICS: Readonly<Record<string, MetricDef>> = {
   kv_ops: { label: 'KV 操作', kind: 'counter', quotas: { free: 100_000 } },
   kv_storage_bytes: { label: 'KV 儲存量', kind: 'gauge', quotas: { free: 1_073_741_824 } },
   kv_storage_keys: { label: 'KV keys 數', kind: 'gauge', quotas: {} },
-  r2_storage_bytes: { label: 'R2 儲存量', kind: 'gauge', quotas: { free: 10_737_418_240 } },
+  r2_storage_bytes: { label: 'R2 儲存量', kind: 'gauge', quotas: { free: 10_737_418_240 }, unranked: true },
   r2_objects: { label: 'R2 物件數', kind: 'gauge', quotas: {} },
 };
 
@@ -240,15 +246,18 @@ export interface CfAccountCardData {
   plan: CfPlanId;
   last_ok_at: number;
   metrics: CfMetricRowData[];
-  /** Metric row with the highest value/quota ratio (quota-less rows rank 0);
-   *  undefined when no metric has a quota, metrics is empty, or every
-   *  quota'd ratio is exactly 0 (early UTC day — the strict > never beats
-   *  the initial 0) — the view falls back to the first row. */
+  /** Metric row with the highest value/quota ratio (quota-less and unranked
+   *  rows — R2 storage — rank 0); undefined when no metric has a quota,
+   *  metrics is empty, or every rankable ratio is exactly 0 (early UTC day —
+   *  the strict > never beats the initial 0) — the view falls back to the
+   *  first row. */
   topMetric?: CfMetricRowData;
-  /** Highest ratio across the account's metrics (0 when none have quotas). */
+  /** Highest ratio across the account's rankable metrics (0 when none have
+   *  quotas; R2 storage never contributes). */
   maxRatio: number;
-  /** Warn-or-worse count: metrics at ratio >= WARN_THRESHOLD (0.6), red
-   *  (>=0.8) rows included — the number the amber chip shows. */
+  /** Warn-or-worse count: rankable metrics at ratio >= WARN_THRESHOLD (0.6),
+   *  red (>=0.8) rows included — the number the amber chip shows. Unranked
+   *  rows never count. */
   warnCount: number;
 }
 
@@ -309,8 +318,10 @@ export async function getTodayCfUsage(db: D1Database): Promise<CfUsageData> {
   for (const card of accounts) {
     card.metrics.sort((a, b) => order.indexOf(a.metric) - order.indexOf(b.metric));
     for (const row of card.metrics) {
+      const def = METRICS[row.metric];
       const quota = quotaFor(row.metric, card.plan);
-      if (quota <= 0) continue;
+      // unranked metrics (R2 storage) display in details but never rank
+      if (quota <= 0 || def?.unranked) continue;
       const ratio = row.value / quota;
       if (ratio >= WARN_THRESHOLD) card.warnCount++;
       if (ratio > card.maxRatio) {
