@@ -57,21 +57,32 @@ log_error() {
 # 檢查並停止佔用該 port 的進程
 kill_port() {
     local port=$1
-    local pid=$(lsof -ti :"$port" 2>/dev/null || true)
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
 
-    if [ -n "$pid" ]; then
-        log_warn "Port $port 已被 PID $pid 佔用，停止中..."
-        kill "$pid" 2>/dev/null || true
+    if [ -n "$pids" ]; then
+        log_warn "Port $port 已被 PID ${pids//$'\n'/ } 佔用，停止中..."
+        # lsof -t 一行一個 PID——pipe 給 xargs 讓多 PID（wrangler＋workerd
+        # 同持一 port）各自成為 kill 的參數；舊版 `kill "$pids"` 把整個
+        # 多行 blob 當成單一無效參數，被 `|| true` 吞掉後仍印「已釋放」。
+        echo "$pids" | xargs -r kill 2>/dev/null || true
         sleep 2
 
         # 如果還在，強制停止
-        pid=$(lsof -ti :"$port" 2>/dev/null || true)
-        if [ -n "$pid" ]; then
-            log_warn "強制停止 PID $pid..."
-            kill -9 "$pid" 2>/dev/null || true
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            log_warn "強制停止 PID ${pids//$'\n'/ }..."
+            echo "$pids" | xargs -r kill -9 2>/dev/null || true
             sleep 1
         fi
-        log_success "Port $port 已釋放"
+        # 複查後才宣稱成功——殘留時如實失敗，讓 start_dev 不會打到舊 server。
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -z "$pids" ]; then
+            log_success "Port $port 已釋放"
+        else
+            log_error "Port $port 仍被 PID ${pids//$'\n'/ } 佔用——請手動處理後重試"
+            return 1
+        fi
     else
         log_info "Port $port 可用"
     fi
@@ -95,8 +106,14 @@ start_dev() {
     if curl -s "http://127.0.0.1:$PORT/" > /dev/null 2>&1 || \
        curl -s "http://127.0.0.1:$PORT" > /dev/null 2>&1; then
         log_success "Dev server 已啟動 (PID: $dev_pid)"
+        # Network IP 以 ip -4 addr 實測值為準（舊版硬編碼舊主機 192.168.1.200）
+        local net_ip="${NETWORK_IP:-$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || true)}"
         echo -e "  ${GREEN}Local:${NC}     http://127.0.0.1:$PORT/"
-        echo -e "  ${GREEN}Network:${NC}   http://192.168.1.200:$PORT/"
+        if [ -n "$net_ip" ]; then
+            echo -e "  ${GREEN}Network:${NC}   http://${net_ip}:$PORT/"
+        else
+            echo -e "  ${GREEN}Network:${NC}   (無全域 IPv4，僅 localhost)"
+        fi
     else
         log_error "Dev server 啟動失敗，查看日誌: tail -f $log_file"
         return 1
@@ -112,7 +129,7 @@ start_ngrok() {
     mkdir -p /tmp
     local log_file="/tmp/${PROJECT_NAME}-ngrok.log"
 
-    npx ngrok http "$port" --log=stdout > "$log_file" 2>&1 &
+    npx ngrok http "$PORT" --log=stdout > "$log_file" 2>&1 &
     local ngrok_pid=$!
 
     # 等待 ngrok 啟動
