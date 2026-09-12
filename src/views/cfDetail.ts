@@ -60,9 +60,11 @@ const GroupTable = (group: ResourceGroup) => html`
   </table>
 </div>`;
 
-/** The expand-area fragment: one table per resource group. */
+/** The expand-area fragment: one table per resource group. The root carries
+ *  no `cf-detail` class — the swap target (trigger div) already has it, and
+ *  nesting two `.cf-detail`s doubles the margin (final-review nit #24). */
 export const CfResourceDetailFragment = (detail: ResourceDetail) => html`
-<div class="cf-detail">
+<div>
   <p class="cf-detail-meta">逐資源明細（今日 UTC 起）· 查詢時間 ${taipeiTime(detail.fetchedAt)}</p>
   ${detail.groups.map((g) => GroupTable(g))}
   ${detail.groups.length === 0 ? html`<p class="cf-detail-meta">今日無任何資源用量。</p>` : ''}
@@ -70,9 +72,9 @@ export const CfResourceDetailFragment = (detail: ResourceDetail) => html`
 
 /** 200-status error panel — htmx does not swap non-2xx responses, so the
  *  fragment route ALWAYS answers 200 and degrades visually (design §安全
- *  不變式 5). */
+ *  不變式 5). `cf-detail` omitted for the same nested-margin reason. */
 export const CfDetailError = (message: string) => html`
-<div class="cf-detail cf-detail-error">
+<div class="cf-detail-error">
   <p>資源明細載入失敗：${message}</p>
   <p class="cf-detail-meta">稍後再收合重新展開即可重試（成功後 5 分鐘快取生效）。</p>
 </div>`;
