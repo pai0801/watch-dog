@@ -158,13 +158,22 @@ const detailFixture = () => ({
     viewer: {
       accounts: [
         {
+          // rows without a time dimension land in today's bucket (defensive
+          // path); the 2026-09-10 rows exercise the yesterday column. The
+          // fragment route fetches with real Date.now(), so 'today' is the
+          // real UTC day — any fixed past date deterministically reads as
+          // yesterday.
           wkr: [
             { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1000, errors: 2 } },
             { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 500, errors: 0 } },
           ],
-          pgs: [{ dimensions: { scriptName: 'pages-worker--13581012-production' }, sum: { requests: 300 } }],
+          pgs: [
+            { dimensions: { scriptName: 'pages-worker--13581012-production' }, sum: { requests: 300 } },
+            { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-10' }, sum: { requests: 250 } },
+          ],
           d1: [
             { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 4_000_000, rowsWritten: 10_000 } },
+            { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555', date: '2026-09-10' }, sum: { rowsRead: 1_000_000, rowsWritten: 8_000 } },
             { dimensions: { databaseId: '99999999-8888-7777-6666-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } },
           ],
           kvo: [{ dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789' }, sum: { requests: 42 } }],
@@ -202,8 +211,14 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     // workers: dimension value is the name; adaptive rows accumulated
     expect(html).toContain('watch-dog');
     expect(html).toContain('1,500');
-    // pages: CF internal deployment name shown as-is (documented trade-off)
-    expect(html).toContain('pages-worker--13581012-production');
+    // pages: internal deployment name parsed into project（env）+ pages.dev URL;
+    // the raw `--13581012--` internal form never reaches the page
+    expect(html).toContain('pages-worker（production）');
+    expect(html).toContain('https://pages-worker.pages.dev');
+    expect(html).not.toContain('--13581012');
+    // yesterday's column: d1 rowsRead 1,000,000 / pages requests 250
+    expect(html).toContain('昨 1,000,000');
+    expect(html).toContain('昨 250');
     // resolved names win
     expect(html).toContain('Production DB');
     expect(html).toContain('site-cache');
@@ -218,7 +233,8 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     const html = await res.text();
     expect((html.match(/site-cache/g) ?? []).length).toBe(1);
     expect(html).toContain('KiB'); // 1024 bytes → human-readable
-    expect(html).toContain('>42<'); // kv_ops rendered standalone (timestamp HH:MM can't fake it)
+    // kv_ops rendered standalone in its own cell (timestamp HH:MM can't fake it)
+    expect(html).toMatch(/<td>\s*42\s*<div class="cf-res-prev">昨 —<\/div>/);
   });
 
   it('NEVER leaks 32-hex ids (unresolved resources degrade to 8-char short ids)', async () => {
@@ -267,7 +283,7 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     );
     const res = await SELF.fetch('http://localhost/cf-usage/detail?label=Test%20Account');
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('今日無任何資源用量');
+    expect(await res.text()).toContain('近兩日無任何資源用量');
   });
 });
 

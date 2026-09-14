@@ -374,7 +374,12 @@ interface UsageAccountShape {
   plan: string;
   last_polled_at: number;
   metrics: UsageMetricShape[];
-  detail?: { groups: Array<{ type: string; items: Array<{ name: string; metrics: Record<string, number> }> }> } | null;
+  detail?: {
+    groups: Array<{
+      type: string;
+      items: Array<{ name: string; url?: string; metrics: Record<string, number>; metrics_yesterday: Record<string, number> }>;
+    }>;
+  } | null;
   detail_error?: string;
 }
 
@@ -486,7 +491,11 @@ describe('GET /api/cf-usage', () => {
                   accounts: [
                     {
                       wkr: [{ dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1500, errors: 2 } }],
-                      d1: [{ dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } }],
+                      pgs: [{ dimensions: { scriptName: 'pages-worker--13581012-production' }, sum: { requests: 300 } }],
+                      d1: [
+                        { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } },
+                        { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555', date: '2026-09-10' }, sum: { rowsRead: 50, rowsWritten: 0 } },
+                      ],
                     },
                   ],
                 },
@@ -501,6 +510,16 @@ describe('GET /api/cf-usage', () => {
     const good = body.accounts.find((a) => a.label === 'Good');
     expect(good?.detail?.groups.length).toBeGreaterThan(0);
     expect(good?.detail?.groups[0].items[0].name).toBe('watch-dog');
+    expect(good?.detail?.groups[0].items[0].metrics_yesterday).toEqual({});
+    // d1: today 100 / yesterday 50 split by the row's date dimension
+    const d1Item = good?.detail?.groups.find((g) => g.type === 'd1')?.items[0];
+    expect(d1Item?.metrics.d1_rows_read).toBe(100);
+    expect(d1Item?.metrics_yesterday.d1_rows_read).toBe(50);
+    // pages: parsed name + production pages.dev URL, no internal deployment name
+    const pagesItem = good?.detail?.groups.find((g) => g.type === 'pages')?.items[0];
+    expect(pagesItem?.name).toBe('pages-worker（production）');
+    expect(pagesItem?.url).toBe('https://pages-worker.pages.dev');
+    expect(JSON.stringify(body)).not.toContain('--13581012');
     const bad = body.accounts.find((a) => a.label === 'Bad');
     expect(bad?.detail_error).toContain('HTTP 500');
     expect(bad?.detail).toBeNull();

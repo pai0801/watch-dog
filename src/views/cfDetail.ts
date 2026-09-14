@@ -5,7 +5,7 @@
 // unresolved resources arrive here already degraded to short-id names).
 
 import { html } from 'hono/html';
-import type { ResourceDetail, ResourceGroup, ResourceGroupType } from '../services/cfResources';
+import type { ResourceDetail, ResourceGroup, ResourceGroupType, ResourceItem } from '../services/cfResources';
 import { fmtMetricValue } from '../lib/format';
 
 const GROUP_COLUMNS: Record<ResourceGroupType, string[]> = {
@@ -37,6 +37,16 @@ const taipeiTime = (unixSec: number): string =>
     hour12: false,
   }).format(new Date(unixSec * 1000));
 
+/** One metric cell: today's value with yesterday's below it in muted text.
+ *  A resource with no yesterday row (created today / no usage) shows '—'. */
+const MetricCell = (metric: string, item: ResourceItem) => {
+  const prev = item.metrics_prev[metric];
+  return html`<td>
+    ${fmtMetricValue(metric, item.metrics[metric] ?? 0)}
+    <div class="cf-res-prev">昨 ${prev === undefined ? '—' : fmtMetricValue(metric, prev)}</div>
+  </td>`;
+};
+
 const GroupTable = (group: ResourceGroup) => html`
 <div class="cf-res-group">
   <h4 class="cf-res-title">${group.title}</h4>
@@ -51,8 +61,12 @@ const GroupTable = (group: ResourceGroup) => html`
       ${group.items.map(
         (item) => html`
         <tr>
-          <td class="cf-res-name">${item.name}</td>
-          ${GROUP_COLUMNS[group.type].map((m) => html`<td>${fmtMetricValue(m, item.metrics[m] ?? 0)}</td>`)}
+          <td class="cf-res-name">${
+            item.url
+              ? html`<a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.name}</a>`
+              : item.name
+          }</td>
+          ${GROUP_COLUMNS[group.type].map((m) => MetricCell(m, item))}
         </tr>
         `
       )}
@@ -65,9 +79,9 @@ const GroupTable = (group: ResourceGroup) => html`
  *  nesting two `.cf-detail`s doubles the margin (final-review nit #24). */
 export const CfResourceDetailFragment = (detail: ResourceDetail) => html`
 <div>
-  <p class="cf-detail-meta">逐資源明細（今日 UTC 起）· 查詢時間 ${taipeiTime(detail.fetchedAt)}</p>
+  <p class="cf-detail-meta">逐資源明細（上列＝今日 UTC，灰字＝昨日）· 查詢時間 ${taipeiTime(detail.fetchedAt)}</p>
   ${detail.groups.map((g) => GroupTable(g))}
-  ${detail.groups.length === 0 ? html`<p class="cf-detail-meta">今日無任何資源用量。</p>` : ''}
+  ${detail.groups.length === 0 ? html`<p class="cf-detail-meta">近兩日無任何資源用量。</p>` : ''}
 </div>`;
 
 /** 200-status error panel — htmx does not swap non-2xx responses, so the

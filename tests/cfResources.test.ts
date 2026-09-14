@@ -31,7 +31,7 @@ describe('normalizeNsId', () => {
 });
 
 describe('buildResourceQuery', () => {
-  it('merges six datasets with dimension selections and the three verified filter forms', () => {
+  it('merges six datasets with resource+time dimensions, anchored at yesterday 00:00 UTC (2-day window)', () => {
     const q = buildResourceQuery(TEST_CF.accountId, CF_TEST_NOW);
     expect(q).toContain(`accountTag: "${TEST_CF.accountId}"`);
     expect(q).toContain('workersInvocationsAdaptive');
@@ -40,15 +40,17 @@ describe('buildResourceQuery', () => {
     expect(q).toContain('kvOperationsAdaptiveGroups');
     expect(q).toContain('kvStorageAdaptiveGroups');
     expect(q).toContain('r2StorageAdaptiveGroups');
-    expect(q).toContain('dimensions { scriptName }');
-    expect(q).toContain('dimensions { databaseId }');
-    expect(q).toContain('dimensions { namespaceId }');
-    expect(q).toContain('dimensions { bucketName }');
-    // three verified filter forms pinned (CF_TEST_NOW = 2026-09-11T12:00Z)
-    expect(q).toContain('date_geq: "2026-09-11"');
-    expect(q).toContain('datetime_geq: "2026-09-11T00:00:00Z"');
-    expect(q).toContain('datetimeHour_geq: "2026-09-11T00:00:00Z"');
-    expect(q).toContain('limit: 100');
+    expect(q).toContain('dimensions { scriptName date }');
+    expect(q).toContain('dimensions { databaseId date }');
+    expect(q).toContain('dimensions { namespaceId date }');
+    expect(q).toContain('dimensions { namespaceId datetimeHour }');
+    expect(q).toContain('dimensions { bucketName date }');
+    // filter forms anchored at YESTERDAY (CF_TEST_NOW = 2026-09-11T12:00Z)
+    expect(q).toContain('date_geq: "2026-09-10"');
+    expect(q).toContain('datetime_geq: "2026-09-10T00:00:00Z"');
+    expect(q).toContain('datetimeHour_geq: "2026-09-10T00:00:00Z"');
+    expect(q).not.toContain('2026-09-11'); // today never appears — window starts yesterday
+    expect(q).toContain('limit: 200');
     // dimensions/sum/max are selection fields, never call args (live-API verified)
     expect(q).not.toContain('sum(');
     expect(q).not.toContain('max(');
@@ -56,21 +58,32 @@ describe('buildResourceQuery', () => {
   });
 });
 
-/** viewer.accounts[0] fixture: adaptive multi-row, hyphenated-vs-bare KV ids. */
+/** viewer.accounts[0] fixture: adaptive multi-row, hyphenated-vs-bare KV ids.
+ *  Rows missing the time dimension land in TODAY's bucket (defensive path —
+ *  a value must never silently vanish); explicit prev-day rows test the
+ *  yesterday split. CF_TEST_NOW day = 2026-09-11, prev day = 2026-09-10. */
 const detailNode = {
   wkr: [
-    { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 1000, errors: 2 } },
-    { dimensions: { scriptName: 'watch-dog' }, sum: { requests: 500, errors: 0 } },
+    { dimensions: { scriptName: 'watch-dog', date: '2026-09-11' }, sum: { requests: 1000, errors: 2 } },
+    { dimensions: { scriptName: 'watch-dog', date: '2026-09-11' }, sum: { requests: 500, errors: 0 } },
+    { dimensions: { scriptName: 'watch-dog', date: '2026-09-10' }, sum: { requests: 200, errors: 0 } },
     { dimensions: { scriptName: 'zzz-worker' }, sum: { requests: 10, errors: 0 } },
   ],
-  pgs: [{ dimensions: { scriptName: 'pages-worker--13581012-production' }, sum: { requests: 300 } }],
-  d1: [
-    { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555' }, sum: { rowsRead: 4_000_000, rowsWritten: 10_000 } },
-    { dimensions: { databaseId: '99999999-8888-7777-6666-555555555555' }, sum: { rowsRead: 100, rowsWritten: 5 } },
+  pgs: [
+    { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-11' }, sum: { requests: 300 } },
+    { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-10' }, sum: { requests: 250 } },
   ],
-  kvo: [{ dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789' }, sum: { requests: 42 } }],
-  kvs: [{ dimensions: { namespaceId: 'ABCDEF01-2345-6789-ABCD-EF0123456789' }, max: { byteCount: 1024, keyCount: 7 } }],
-  r2s: [{ dimensions: { bucketName: 'media-bucket' }, max: { payloadSize: 2_000_000_000, objectCount: 120 } }],
+  d1: [
+    { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555', date: '2026-09-11' }, sum: { rowsRead: 4_000_000, rowsWritten: 10_000 } },
+    { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555', date: '2026-09-10' }, sum: { rowsRead: 1_000_000, rowsWritten: 8_000 } },
+    { dimensions: { databaseId: '99999999-8888-7777-6666-555555555555', date: '2026-09-11' }, sum: { rowsRead: 100, rowsWritten: 5 } },
+  ],
+  kvo: [
+    { dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789', datetimeHour: '2026-09-11T05:00:00Z' }, sum: { requests: 42 } },
+    { dimensions: { namespaceId: 'abcdef0123456789abcdef0123456789', datetimeHour: '2026-09-10T05:00:00Z' }, sum: { requests: 7 } },
+  ],
+  kvs: [{ dimensions: { namespaceId: 'ABCDEF01-2345-6789-ABCD-EF0123456789', date: '2026-09-11' }, max: { byteCount: 1024, keyCount: 7 } }],
+  r2s: [{ dimensions: { bucketName: 'media-bucket', date: '2026-09-11' }, max: { payloadSize: 2_000_000_000, objectCount: 120 } }],
 };
 
 const detailNames = {
@@ -80,9 +93,9 @@ const detailNames = {
 
 describe('parseResourceDetail', () => {
   it('groups in fixed order, accumulates adaptive multi-rows, resolves names, merges KV, sorts by primary usage', () => {
-    const detail = parseResourceDetail('Test Account', detailNode, detailNames, 1_000);
+    const detail = parseResourceDetail('Test Account', detailNode, detailNames, CF_TEST_NOW / 1000);
     expect(detail.label).toBe('Test Account');
-    expect(detail.fetchedAt).toBe(1000);
+    expect(detail.fetchedAt).toBe(CF_TEST_NOW / 1000);
     expect(detail.groups.map((g) => g.type)).toEqual(['workers', 'pages', 'd1', 'kv', 'r2']);
 
     const workers = detail.groups[0];
@@ -105,6 +118,49 @@ describe('parseResourceDetail', () => {
 
     // r2: dimension value IS the name
     expect(detail.groups[4].items[0].name).toBe('media-bucket');
+  });
+
+  it('splits rows into today vs yesterday buckets by the time dimension (missing dim = today)', () => {
+    const detail = parseResourceDetail('Test Account', detailNode, detailNames, CF_TEST_NOW / 1000);
+    const workers = detail.groups[0].items.find((i) => i.name === 'watch-dog')!;
+    expect(workers.metrics.workers_requests).toBe(1500); // 2026-09-11 rows only
+    expect(workers.metrics_prev.workers_requests).toBe(200); // 2026-09-10 row
+
+    const d1 = detail.groups[2].items[0];
+    expect(d1.metrics.d1_rows_read).toBe(4_000_000);
+    expect(d1.metrics_prev.d1_rows_read).toBe(1_000_000);
+    expect(d1.metrics_prev.d1_rows_written).toBe(8_000);
+
+    // kvo buckets by datetimeHour → its UTC day (2026-09-10T05 row = yesterday)
+    const kv = detail.groups[3].items[0];
+    expect(kv.metrics.kv_ops).toBe(42);
+    expect(kv.metrics_prev.kv_ops).toBe(7);
+
+    // zzz-worker row has NO time dimension → counted as today, never dropped
+    const zzz = detail.groups[0].items.find((i) => i.name === 'zzz-worker')!;
+    expect(zzz.metrics.workers_requests).toBe(10);
+    expect(zzz.metrics_prev).toEqual({});
+
+    // gauges: yesterday max never bleeds into today's value
+    expect(detail.groups[3].items[0].metrics.kv_storage_bytes).toBe(1024);
+  });
+
+  it('parses Pages deployment names into project（env） with a production pages.dev URL', () => {
+    const node = {
+      pgs: [
+        { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-11' }, sum: { requests: 300 } },
+        { dimensions: { scriptName: 'pages-worker--13581012-preview', date: '2026-09-11' }, sum: { requests: 5 } },
+        { dimensions: { scriptName: 'plain-worker-name', date: '2026-09-11' }, sum: { requests: 1 } },
+      ],
+    };
+    const detail = parseResourceDetail('X', node, {}, CF_TEST_NOW / 1000);
+    const byName = new Map(detail.groups[0].items.map((i) => [i.name, i]));
+    expect(byName.get('pages-worker（production）')?.url).toBe('https://pages-worker.pages.dev');
+    expect(byName.get('pages-worker（production）')?.metrics.pages_requests).toBe(300);
+    // preview deployments have no stable public URL
+    expect(byName.get('pages-worker（preview）')?.url).toBeUndefined();
+    // non-matching scriptName: raw name, no url
+    expect(byName.get('plain-worker-name')?.url).toBeUndefined();
   });
 
   it('omits empty groups entirely', () => {

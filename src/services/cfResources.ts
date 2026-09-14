@@ -11,7 +11,18 @@
 // Cost model (operator-approved on-demand + 5-min cache): at most ONE
 // GraphQL query per account per 5 minutes per isolate — ≤288/account/day
 // hard cap no matter how hard the fragment/API is hammered. Zero D1
-// detail writes; name reads (~10 rows) only on cache miss.
+// detail writes; name reads (~10 rows) only on cache miss. The window
+// covers TWO UTC days (yesterday + today, operator ask 2026-09-14) so the
+// detail can show both — one query still, only its row count doubles
+// (limit raised 100→200 to match; ≤2 rows per resource per day per
+// dataset at the date/datetimeHour granularity, live-verified 2026-09-14).
+//
+// Pages scriptName values are CF-internal deployment names
+// (`<project>--<account-snippet>-<env>`) — unreadable to humans. They are
+// parsed into `<project>（<env>）` with a production link to
+// `https://<project>.pages.dev` (the only URL derivable WITHOUT the
+// account id — dashboard URLs would leak the 32-hex id onto the public
+// fragment; preview deployments have no stable public URL, so no link).
 //
 // SECURITY: ResourceDetail intentionally has NO account id field — the
 // fragment and API responses are assembled from labels only (source-level
@@ -27,11 +38,15 @@ export type NameResourceType = 'd1' | 'kv';
 /** One resource row (a worker, a pages deployment, a database...). `id` is
  *  the GraphQL dimension value (normalized bare hex for KV) — internal only,
  *  NEVER rendered in HTML or serialized by the API; `name` is the display
- *  string (dimension value itself, resolved REST name, or 8-char short id). */
+ *  string (dimension value itself, resolved REST name, parsed Pages project
+ *  name, or 8-char short id). `metrics` = today (UTC), `metrics_prev` =
+ *  yesterday (UTC); `url` only for Pages production (see header). */
 export interface ResourceItem {
   id: string;
   name: string;
+  url?: string;
   metrics: Record<string, number>;
+  metrics_prev: Record<string, number>;
 }
 
 /** One group (e.g. all D1 databases of the account). */
@@ -62,14 +77,19 @@ const GROUP_TITLES: Record<ResourceGroupType, string> = {
   r2: 'R2 Buckets',
 };
 
-// limit:100 is a single-page assumption — fleet scale is far below 100
-// resources per type per account; beyond that the list silently truncates.
+// limit:200 is a single-page assumption across the 2-day window — fleet
+// scale is far below that (≤2 rows per resource per day per dataset); beyond
+// it the list silently truncates.
 interface ResourceDatasetDef {
   alias: string;
   dataset: string;
   agg: 'sum' | 'max';
   filterKind: 'date' | 'datetime' | 'datetimeHour';
   dimension: string;
+  /** Time dimension selected alongside the resource dimension — the value
+   *  decides which UTC-day bucket the row accumulates into (live-verified
+   *  2026-09-14: `date` on wkr/pgs/d1/kvs/r2s, `datetimeHour` on kvo). */
+  timeDimension: 'date' | 'datetimeHour';
   /** Internal accumulation bucket ('kvOps'/'kvStorage' merge later). */
   bucket: 'workers' | 'pages' | 'd1' | 'kvOps' | 'kvStorage' | 'r2';
   /** Normalize the dimension id (KV both datasets). */
@@ -81,51 +101,53 @@ interface ResourceDatasetDef {
 const RESOURCE_DATASETS: readonly ResourceDatasetDef[] = [
   {
     alias: 'wkr', dataset: 'workersInvocationsAdaptive', agg: 'sum', filterKind: 'datetime',
-    dimension: 'scriptName', bucket: 'workers', normalizeId: false,
+    dimension: 'scriptName', timeDimension: 'date', bucket: 'workers', normalizeId: false,
     fields: { requests: 'workers_requests', errors: 'workers_errors' },
   },
   {
     alias: 'pgs', dataset: 'pagesFunctionsInvocationsAdaptiveGroups', agg: 'sum', filterKind: 'datetime',
-    dimension: 'scriptName', bucket: 'pages', normalizeId: false,
+    dimension: 'scriptName', timeDimension: 'date', bucket: 'pages', normalizeId: false,
     fields: { requests: 'pages_requests' },
   },
   {
     alias: 'd1', dataset: 'd1AnalyticsAdaptiveGroups', agg: 'sum', filterKind: 'date',
-    dimension: 'databaseId', bucket: 'd1', normalizeId: false,
+    dimension: 'databaseId', timeDimension: 'date', bucket: 'd1', normalizeId: false,
     fields: { rowsRead: 'd1_rows_read', rowsWritten: 'd1_rows_written' },
   },
   {
     alias: 'kvo', dataset: 'kvOperationsAdaptiveGroups', agg: 'sum', filterKind: 'datetimeHour',
-    dimension: 'namespaceId', bucket: 'kvOps', normalizeId: true,
+    dimension: 'namespaceId', timeDimension: 'datetimeHour', bucket: 'kvOps', normalizeId: true,
     fields: { requests: 'kv_ops' },
   },
   {
     alias: 'kvs', dataset: 'kvStorageAdaptiveGroups', agg: 'max', filterKind: 'date',
-    dimension: 'namespaceId', bucket: 'kvStorage', normalizeId: true,
+    dimension: 'namespaceId', timeDimension: 'date', bucket: 'kvStorage', normalizeId: true,
     fields: { byteCount: 'kv_storage_bytes', keyCount: 'kv_storage_keys' },
   },
   {
     alias: 'r2s', dataset: 'r2StorageAdaptiveGroups', agg: 'max', filterKind: 'date',
-    dimension: 'bucketName', bucket: 'r2', normalizeId: false,
+    dimension: 'bucketName', timeDimension: 'date', bucket: 'r2', normalizeId: false,
     fields: { payloadSize: 'r2_storage_bytes', objectCount: 'r2_objects' },
   },
 ];
 
-/** Build the per-account six-dataset dimension query. Pure — every
- *  timestamp derives from nowMs (testable). */
+/** Build the per-account six-dataset dimension query. The filter anchors at
+ *  yesterday 00:00 UTC so ONE query carries both days (cost model header);
+ *  rows split into today/yesterday buckets by the time dimension. Pure —
+ *  every timestamp derives from nowMs (testable). */
 export function buildResourceQuery(accountId: string, nowMs: number): string {
-  const day = new Date(nowMs).toISOString().slice(0, 10);
-  const datetime = `${day}T00:00:00Z`;
+  const prevDay = new Date(nowMs - 86_400_000).toISOString().slice(0, 10);
+  const datetime = `${prevDay}T00:00:00Z`;
   const parts = RESOURCE_DATASETS.map((ds) => {
     const filter =
       ds.filterKind === 'date'
-        ? `date_geq: "${day}"`
+        ? `date_geq: "${prevDay}"`
         : ds.filterKind === 'datetime'
           ? `datetime_geq: "${datetime}"`
           : `datetimeHour_geq: "${datetime}"`;
     const aggFields = Object.keys(ds.fields).join(' ');
     const agg = ds.agg === 'sum' ? `sum { ${aggFields} }` : `max { ${aggFields} }`;
-    return `${ds.alias}: ${ds.dataset}(limit: 100, filter: { ${filter} }) { dimensions { ${ds.dimension} } ${agg} }`;
+    return `${ds.alias}: ${ds.dataset}(limit: 200, filter: { ${filter} }) { dimensions { ${ds.dimension} ${ds.timeDimension} } ${agg} }`;
   });
   return `query { viewer { accounts(filter: {accountTag: "${accountId}"}) { ${parts.join(' ')} } } }`;
 }
@@ -152,15 +174,36 @@ const SORT_KEYS: Record<ResourceGroupType, readonly [string, string | null]> = {
  *  32-hex leak guard must stay clean on every public surface). */
 const shortId = (id: string): string => `${id.slice(0, 8)}…`;
 
+/** Pages scriptName format: `<project>--<account-snippet>-<env>` (single
+ *  hyphen before the env — as observed in live dimension values, e.g.
+ *  `pages-worker--14766800-production`). Only a DNS-safe project name gets
+ *  a pages.dev URL (defensive: the value is upstream-controlled text
+ *  heading into an href). */
+const PAGES_NAME_RE = /^(.+)--\d+-(production|preview)$/;
+const parsePagesName = (raw: string): { name: string; url?: string } => {
+  const m = PAGES_NAME_RE.exec(raw);
+  if (!m) return { name: raw };
+  const [, project, env] = m;
+  const dnsSafe = /^[a-z0-9-]+$/i.test(project);
+  return {
+    name: `${project}（${env}）`,
+    url: env === 'production' && dnsSafe ? `https://${project}.pages.dev` : undefined,
+  };
+};
+
 /** Parse viewer.accounts[0] of the detail query into grouped, named, sorted
- *  items. Adaptive datasets may return several rows per dimension (sampled
- *  windows) — sum-agg fields accumulate, max-agg fields take the max. Pure. */
+ *  items. Each row carries a time dimension (date / datetimeHour) — rows on
+ *  today's UTC day accumulate into `metrics`, everything else (yesterday,
+ *  within the 2-day window) into `metrics_prev`. Adaptive datasets may return
+ *  several rows per dimension (sampled windows) — sum-agg fields accumulate,
+ *  max-agg fields take the max, per day bucket. Pure. */
 export function parseResourceDetail(
   label: string,
   node: RgAccountNode,
   names: Partial<Record<NameResourceType, Map<string, string>>>,
   nowSec: number
 ): ResourceDetail {
+  const today = new Date(nowSec * 1000).toISOString().slice(0, 10);
   const buckets: Record<string, Map<string, ResourceItem>> = {
     workers: new Map(), pages: new Map(), d1: new Map(),
     kvOps: new Map(), kvStorage: new Map(), r2: new Map(),
@@ -168,7 +211,7 @@ export function parseResourceDetail(
   const ensure = (map: Map<string, ResourceItem>, id: string): ResourceItem => {
     let item = map.get(id);
     if (!item) {
-      item = { id, name: id, metrics: {} };
+      item = { id, name: id, metrics: {}, metrics_prev: {} };
       map.set(id, item);
     }
     return item;
@@ -181,11 +224,16 @@ export function parseResourceDetail(
       if (typeof rawId !== 'string' || rawId === '') continue;
       const id = ds.normalizeId ? normalizeNsId(rawId) : rawId;
       const item = ensure(buckets[ds.bucket], id);
+      // Row's UTC day: a missing/garbage time dimension counts as today —
+      // the value must never silently vanish from the visible column.
+      const rawTime = g.dimensions?.[ds.timeDimension];
+      const day = typeof rawTime === 'string' ? rawTime.slice(0, 10) : today;
+      const target = day === today ? item.metrics : item.metrics_prev;
       for (const [field, metricKey] of Object.entries(ds.fields)) {
         const raw = ds.agg === 'sum' ? g.sum?.[field] : g.max?.[field];
         const n = typeof raw === 'number' ? raw : 0;
-        const prev = item.metrics[metricKey] ?? 0;
-        item.metrics[metricKey] = ds.agg === 'sum' ? prev + n : Math.max(prev, n);
+        const prev = target[metricKey] ?? 0;
+        target[metricKey] = ds.agg === 'sum' ? prev + n : Math.max(prev, n);
       }
     }
   }
@@ -200,6 +248,10 @@ export function parseResourceDetail(
         ...(buckets.kvOps.get(id)?.metrics ?? {}),
         ...(buckets.kvStorage.get(id)?.metrics ?? {}),
       },
+      metrics_prev: {
+        ...(buckets.kvOps.get(id)?.metrics_prev ?? {}),
+        ...(buckets.kvStorage.get(id)?.metrics_prev ?? {}),
+      },
     });
   }
 
@@ -208,7 +260,7 @@ export function parseResourceDetail(
 
   const itemsByType: Record<ResourceGroupType, ResourceItem[]> = {
     workers: named(buckets.workers, (i) => i.id),
-    pages: named(buckets.pages, (i) => i.id),
+    pages: [...buckets.pages.values()].map((item) => ({ ...item, ...parsePagesName(item.id) })),
     d1: named(buckets.d1, (i) => names.d1?.get(i.id) ?? shortId(i.id)),
     kv: kvItems,
     r2: named(buckets.r2, (i) => i.id),

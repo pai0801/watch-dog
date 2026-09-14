@@ -462,11 +462,18 @@ interface ApiUsageMetric {
 }
 
 /** Detail groups with resource ids stripped — ids (esp. KV namespace ids,
- *  32 bare hex) must never reach the response; names suffice. */
+ *  32 bare hex) must never reach the response; names suffice. `url` only
+ *  for Pages production (pages.dev — derivable without the account id). */
 interface ApiResourceGroup {
   type: ResourceGroupType;
   title: string;
-  items: Array<{ name: string; metrics: Record<string, number> }>;
+  items: Array<{
+    name: string;
+    url?: string;
+    metrics: Record<string, number>;
+    /** Yesterday (UTC) — same keys as metrics; missing key = no usage. */
+    metrics_yesterday: Record<string, number>;
+  }>;
 }
 interface ApiResourceDetail {
   label: string;
@@ -492,7 +499,12 @@ const toApiDetail = (detail: ResourceDetail): ApiResourceDetail => ({
   groups: detail.groups.map((g) => ({
     type: g.type,
     title: g.title,
-    items: g.items.map((item) => ({ name: item.name, metrics: item.metrics })),
+    items: g.items.map((item) => ({
+      name: item.name,
+      ...(item.url ? { url: item.url } : {}),
+      metrics: item.metrics,
+      metrics_yesterday: item.metrics_prev,
+    })),
   })),
 });
 

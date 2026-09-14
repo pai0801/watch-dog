@@ -333,6 +333,18 @@ export const Layout = ({ title = 'Watch-Dog Sentinel', content }: { title?: stri
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .cf-res-name a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    .cf-res-name a:hover {
+      text-decoration: underline;
+    }
+    /* yesterday's value under today's in the same metric cell */
+    .cf-res-prev {
+      font-size: 0.68rem;
+      color: #777;
+    }
     [x-cloak] {
       display: none !important;
     }
