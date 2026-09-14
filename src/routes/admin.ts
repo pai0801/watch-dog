@@ -11,6 +11,7 @@ import { getAllSettings, updateEmailSettings, updateSlackSettings, updateSetting
 import { sendEmailAlert, sendSlackAlert, type AlertLevel } from '../services/alert';
 import { setMaintenance } from '../services/maintenance';
 import { pollCfUsage, type CfAccount } from '../services/cfUsage';
+import { getResourceDetailByLabel, invalidateDetailCache, isPagesScriptName } from '../services/cfResources';
 import { Layout } from '../views/layout';
 import { AdminPage, type AdminCfData, type AdminProject, type CfUsageStateRow } from '../views/adminViews';
 import { ErrorState } from '../views/dashboard';
@@ -976,6 +977,176 @@ admin.post('/admin/cf-usage/run', async (c) => {
   } catch (error) {
     console.error('CF usage run error:', error);
     return c.json({ error: 'Poll failed', detail: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// ============================================================================
+// Pages manual aliases (2026-09-14) — CF analytics exposes only internal
+// scriptNames (`pages-worker--<digits>-<env>`) with NO API mapping to the
+// project (verified across four API surfaces, see cfResources.ts header).
+// The operator names each row ONCE here, identifying projects by matching
+// this panel's today/yesterday request counts against each project's
+// Functions numbers in the CF dashboard. Stored in cf_resource_names
+// (type='pages', resource_id = raw scriptName) — the daily d1/kv
+// replace-set refresh never touches pages rows.
+// ============================================================================
+
+/** Modal panel listing the account's Pages rows (near-two-day window from
+ *  the shared detail cache) with a per-row alias form. Shared by GET
+ *  (open) and POST (save → re-render) so a save refreshes in place. */
+async function renderPagesAliasPanel(db: AppBindings['DB'], accountId: string, savedNote = ''): Promise<string> {
+  const account = await db
+    .prepare('SELECT * FROM cf_accounts WHERE account_id = ?')
+    .bind(accountId)
+    .first<CfAccount>();
+  if (!account) return html`<div>Account not found</div>`.toString();
+
+  const aliasRows = await db
+    .prepare("SELECT resource_id, name FROM cf_resource_names WHERE account_id = ? AND resource_type = 'pages'")
+    .bind(accountId)
+    .all<{ resource_id: string; name: string }>();
+  const aliases = new Map((aliasRows.results ?? []).map((r) => [r.resource_id, r.name]));
+
+  let rowsHtml: string;
+  try {
+    const detail = await getResourceDetailByLabel(db, account.label);
+    const pages = detail?.groups.find((g) => g.type === 'pages');
+    if (!detail || !pages || pages.items.length === 0) {
+      rowsHtml = html`<p style="color: #888;">近兩日無 Pages Functions 用量——有請求後再回來命名。</p>`.toString();
+    } else {
+      rowsHtml = raw(pages.items
+        .map((item) => {
+          const alias = aliases.get(item.id) ?? '';
+          const today = (item.metrics.pages_requests ?? 0).toLocaleString();
+          const yesterday = (item.metrics_prev.pages_requests ?? 0).toLocaleString();
+          return html`
+            <tr>
+              <td><code style="font-size: 0.75rem;">${item.id}</code></td>
+              <td>${today} / ${yesterday}</td>
+              <td>
+                <form
+                  hx-post="/admin/cf-usage/accounts/${accountId}/pages-aliases"
+                  hx-target="#modal-container"
+                  hx-swap="innerHTML"
+                  style="display: flex; gap: 0.5rem; align-items: center;"
+                >
+                  <input type="hidden" name="script_name" value="${item.id}" />
+                  <input
+                    type="text"
+                    name="alias"
+                    value="${alias}"
+                    placeholder="專案名（如 photo-web）"
+                    maxlength="100"
+                    style="flex: 1; min-width: 140px;"
+                  />
+                  <button type="submit" class="primary" style="font-size: 0.75rem;">儲存</button>
+                </form>
+              </td>
+            </tr>`.toString();
+        })
+        .join(''));
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    rowsHtml = html`<p style="color: #e74c3c;">資源明細載入失敗：${msg.slice(0, 200)}</p>`.toString();
+  }
+
+  return html`
+<div x-data="{ open: true }" x-show="open" style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+  <div class="modal-dialog" style="background: #242424; padding: 2rem; border-radius: 0.5rem; max-width: 640px; width: 100%; max-height: 85vh; overflow-y: auto;">
+    <h3>Pages 專案命名 — ${account.label}</h3>
+    <p><small>
+      CF 的 API 無法把內部編號（pages-worker--…）反查回專案名（已實測四個 API 面），所以由你命名一次、永久生效。
+      對照方式：開 CF dashboard → Workers &amp; Pages → 各 Pages 專案的 Functions 請求數字，和下表的「今天 / 昨天」比對（數字很好認），把專案名填進去。
+      儲存後首頁明細即刻顯示你取的名字；清空再儲存＝回復 #編號顯示。
+    </small></p>
+    ${savedNote ? html`<div style="padding: 0.75rem; background: #2ecc71; color: white; border-radius: 0.5rem; margin-bottom: 1rem;">${savedNote}</div>` : ''}
+    <div style="overflow-x: auto;">
+      <table class="checks-table striped" style="font-size: 0.8rem; width: 100%;">
+        <thead>
+          <tr><th>內部 scriptName</th><th>今天 / 昨天請求</th><th>專案名（別名）</th></tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+    <div style="margin-top: 1rem; text-align: right;">
+      <button type="button" class="outline secondary" @click="closeModal()">關閉</button>
+    </div>
+  </div>
+  <script>
+    function closeModal() {
+      const container = document.getElementById('modal-container');
+      if (container) {
+        container.innerHTML = '';
+      }
+    }
+  </script>
+</div>
+  `.toString();
+}
+
+/**
+ * GET /admin/cf-usage/accounts/:accountId/pages-aliases
+ * Open the Pages manual-alias modal (edit-modal idiom).
+ */
+admin.get('/admin/cf-usage/accounts/:accountId/pages-aliases', async (c) => {
+  return c.html(await renderPagesAliasPanel(c.env.DB, c.req.param('accountId')));
+});
+
+/**
+ * POST /admin/cf-usage/accounts/:accountId/pages-aliases
+ * Save (upsert) or clear (empty alias → DELETE) one scriptName's alias,
+ * drop the account's detail cache so the homepage fragment shows the new
+ * name on its next request, and re-render the panel in place.
+ */
+admin.post('/admin/cf-usage/accounts/:accountId/pages-aliases', rejectJsonBody, async (c) => {
+  const db = c.env.DB;
+  const accountId = c.req.param('accountId');
+
+  try {
+    const body = await c.req.parseBody();
+    const scriptName = ((body.script_name as string) ?? '').trim();
+    const alias = ((body.alias as string) ?? '').trim();
+
+    if (!isPagesScriptName(scriptName)) {
+      return c.html(cfRedFragment('script_name 格式錯誤——應為 pages-worker--<數字>-production|preview'));
+    }
+    if (alias.length > 100) {
+      return c.html(cfRedFragment('別名過長（上限 100 字）'));
+    }
+    const account = await db
+      .prepare('SELECT 1 FROM cf_accounts WHERE account_id = ?')
+      .bind(accountId)
+      .first();
+    if (!account) {
+      return c.html(cfRedFragment('帳號不存在'));
+    }
+
+    if (alias === '') {
+      await db
+        .prepare("DELETE FROM cf_resource_names WHERE account_id = ? AND resource_type = 'pages' AND resource_id = ?")
+        .bind(accountId, scriptName)
+        .run();
+    } else {
+      await db
+        .prepare(
+          `INSERT INTO cf_resource_names (account_id, resource_type, resource_id, name, updated_at)
+           VALUES (?, 'pages', ?, ?, ?)
+           ON CONFLICT(account_id, resource_type, resource_id) DO UPDATE SET
+             name = excluded.name, updated_at = excluded.updated_at`
+        )
+        .bind(accountId, scriptName, alias, Math.floor(Date.now() / 1000))
+        .run();
+    }
+    invalidateDetailCache(accountId);
+
+    const note = alias === ''
+      ? `已清除 ${scriptName} 的別名——明細回復 #編號顯示。`
+      : `已儲存「${alias}」——首頁明細下一輪請求即顯示。`;
+    return c.html(await renderPagesAliasPanel(db, accountId, note));
+  } catch (error) {
+    console.error('Pages alias save error:', error);
+    return c.html(cfRedFragment('Error saving Pages alias. Please try again.'));
   }
 });
 

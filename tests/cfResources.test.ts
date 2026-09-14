@@ -72,6 +72,7 @@ const detailNode = {
   pgs: [
     { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-11' }, sum: { requests: 300 } },
     { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-10' }, sum: { requests: 250 } },
+    { dimensions: { scriptName: 'pages-worker--13581012-preview', date: '2026-09-11' }, sum: { requests: 5 } },
   ],
   d1: [
     { dimensions: { databaseId: '11111111-2222-3333-4444-555555555555', date: '2026-09-11' }, sum: { rowsRead: 4_000_000, rowsWritten: 10_000 } },
@@ -173,6 +174,19 @@ describe('parseResourceDetail', () => {
     expect(detail.groups.map((g) => g.type)).toEqual(['d1']);
   });
 
+  it('operator alias (names.pages, keyed raw scriptName) wins over the tagged fallback', () => {
+    const node = {
+      pgs: [{ dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-11' }, sum: { requests: 300 } }],
+    };
+    const aliased = parseResourceDetail(
+      'X', node, { pages: new Map([['pages-worker--13581012-production', 'photo-web']]) }, CF_TEST_NOW / 1000
+    );
+    expect(aliased.groups[0].items[0].name).toBe('photo-web');
+    // no alias → tagged fallback
+    const fallback = parseResourceDetail('X', node, {}, CF_TEST_NOW / 1000);
+    expect(fallback.groups[0].items[0].name).toBe('pages-worker #13581012（production）');
+  });
+
   it('sorts tie-break by id ascending (deterministic order)', () => {
     const node = {
       d1: [
@@ -259,6 +273,16 @@ describe('getResourceDetailByLabel', () => {
     const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
     expect(detail?.groups.find((g) => g.type === 'd1')?.items[0].name).toBe('Production DB');
     expect(detail?.groups.find((g) => g.type === 'kv')?.items[0].name).toBe('site-cache');
+  });
+
+  it('resolves operator Pages aliases from cf_resource_names (type pages, keyed raw scriptName)', async () => {
+    await seedCfAccount();
+    await seedResourceName(TEST_CF.accountId, 'pages', 'pages-worker--13581012-production', 'photo-web');
+    const detail = await getResourceDetailByLabel(DB, 'Test Account', CF_TEST_NOW);
+    const pages = detail?.groups.find((g) => g.type === 'pages');
+    expect(pages?.items[0].name).toBe('photo-web');
+    // the un-aliased preview row keeps the tagged fallback
+    expect(pages?.items[1].name).toBe('pages-worker #13581012（preview）');
   });
 
   it('maps upstream failures to readable errors (HTTP 401 hint, GraphQL errors)', async () => {

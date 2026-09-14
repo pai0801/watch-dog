@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { http, HttpResponse } from 'msw';
 import { network } from './network';
+import { resetResourceCaches } from '../src/services/cfResources';
 import {
   DB,
   getCfAccount,
@@ -16,6 +17,7 @@ import {
   seedCfAccount,
   seedCheck,
   seedProject,
+  seedResourceName,
   setEmailSettings,
   setSetting,
   setSlackSettings,
@@ -677,5 +679,123 @@ describe('CF usage monitor endpoints', () => {
     expect(text).toContain('立即輪詢');
     expect(text).not.toContain(TEST_CF.token);
     expect(text).toContain(`••••••••${TEST_CF.token.slice(-4)}`);
+  });
+});
+
+// ============================================================================
+// Pages manual aliases (2026-09-14) — CF analytics exposes only internal
+// scriptNames with NO API mapping to the project (verified, see
+// cfResources.ts header); the operator names each row once via this panel.
+// ============================================================================
+
+describe('Pages alias endpoints', () => {
+  const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const SCRIPT = 'pages-worker--13581012-production';
+
+  /** Two-day detail fixture: today's row has no date dimension (defensive
+   *  today bucket), the fixed 2026-09-10 row reads as yesterday on any real
+   *  run date (dashboard.test idiom). */
+  const aliasFixture = () =>
+    HttpResponse.json({
+      data: {
+        viewer: {
+          accounts: [
+            {
+              pgs: [
+                { dimensions: { scriptName: SCRIPT }, sum: { requests: 1500 } },
+                { dimensions: { scriptName: SCRIPT, date: '2026-09-10' }, sum: { requests: 250 } },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+  const getAliasRow = async () =>
+    DB.prepare("SELECT name FROM cf_resource_names WHERE resource_type = 'pages' AND resource_id = ?")
+      .bind(SCRIPT)
+      .first<{ name: string }>();
+
+  beforeEach(async () => {
+    await seedCfAccount();
+    resetResourceCaches(); // module detail cache survives across tests (shared worker)
+    network.use(http.post(TEST_CF.gqlUrl, aliasFixture));
+  });
+
+  it('GET panel lists Pages rows with today/yesterday counts, behind the auth gate', async () => {
+    const unauth = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/pages-aliases`
+    );
+    expect(unauth.status).toBe(401);
+
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/pages-aliases`,
+      { headers: { Authorization: basic(ADMIN_PASSWORD) } }
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Pages 專案命名');
+    expect(html).toContain(SCRIPT); // raw scriptName for dashboard cross-check
+    expect(html).toContain('1,500'); // today
+    expect(html).toContain('250'); // yesterday
+    expect(html).toContain('比對'); // the how-to-identify hint
+  });
+
+  it('POST saves the alias into cf_resource_names and re-renders the panel with it', async () => {
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/pages-aliases`,
+      {
+        method: 'POST',
+        headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM },
+        body: `script_name=${encodeURIComponent(SCRIPT)}&alias=photo-web`,
+      }
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('已儲存「photo-web」');
+    expect(html).toContain('value="photo-web"'); // input pre-filled on re-render
+    expect((await getAliasRow())?.name).toBe('photo-web');
+  });
+
+  it('POST with an empty alias deletes the stored row (revert to #tag)', async () => {
+    await seedResourceName(TEST_CF.accountId, 'pages', SCRIPT, 'photo-web');
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/pages-aliases`,
+      {
+        method: 'POST',
+        headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM },
+        body: `script_name=${encodeURIComponent(SCRIPT)}&alias=`,
+      }
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('已清除');
+    expect(await getAliasRow()).toBeNull();
+  });
+
+  it('POST rejects a script_name outside the pages-worker pattern', async () => {
+    const res = await SELF.fetch(
+      `http://localhost/admin/cf-usage/accounts/${TEST_CF.accountId}/pages-aliases`,
+      {
+        method: 'POST',
+        headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM },
+        body: `script_name=evil<script>&alias=x`,
+      }
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('script_name 格式錯誤');
+    expect(await getAliasRow()).toBeNull();
+  });
+
+  it('POST rejects an unknown account', async () => {
+    const res = await SELF.fetch(
+      'http://localhost/admin/cf-usage/accounts/cccccccccccccccccccccccccccccccc/pages-aliases',
+      {
+        method: 'POST',
+        headers: { Authorization: basic(ADMIN_PASSWORD), 'X-Requested-With': 'XMLHttpRequest', ...FORM },
+        body: `script_name=${encodeURIComponent(SCRIPT)}&alias=x`,
+      }
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('帳號不存在');
   });
 });

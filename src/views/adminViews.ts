@@ -518,6 +518,13 @@ export const AdminPage = (
               <td>${a.last_error ? a.last_error.slice(0, 120) : '✓'}</td>
               <td style="white-space: nowrap;">
                 <button
+                  hx-get="/admin/cf-usage/accounts/${a.account_id}/pages-aliases"
+                  hx-target="#modal-container"
+                  hx-swap="innerHTML"
+                  class="outline secondary"
+                  style="font-size: 0.75rem;"
+                >Pages 別名</button>
+                <button
                   hx-get="/admin/cf-usage/accounts/${a.account_id}/edit"
                   hx-target="#modal-container"
                   hx-swap="innerHTML"

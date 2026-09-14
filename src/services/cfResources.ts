@@ -30,6 +30,14 @@
 // (the digits at least distinguish same-env rows) with NO link: any
 // pages.dev URL would be fabricated.
 //
+// Attribution is solved by OPERATOR ALIASES instead (2026-09-14): the admin
+// Pages-alias panel names each scriptName once (identifying projects by
+// matching this panel's today/yesterday request counts against the CF
+// dashboard) into cf_resource_names (resource_type='pages', resource_id =
+// the RAW scriptName — stable across days, and the daily d1/kv replace-set
+// refresh never touches pages rows). An alias wins over the tagged
+// fallback; clearing it reverts to `pages-worker #N（env）`.
+//
 // SECURITY: ResourceDetail intentionally has NO account id field — the
 // fragment and API responses are assembled from labels only (source-level
 // cutoff of the 32-hex account id, same invariant as the homepage pane).
@@ -38,15 +46,18 @@ import { D1Database } from '@cloudflare/workers-types';
 import type { CfAccount } from './cfUsage';
 
 export type ResourceGroupType = 'workers' | 'pages' | 'd1' | 'kv' | 'r2';
-/** Resource types whose names come from the REST lists (cf_resource_names). */
-export type NameResourceType = 'd1' | 'kv';
+/** Resource types whose names come from cf_resource_names: d1/kv from the
+ *  REST lists (daily auto-refresh), pages from operator aliases (admin
+ *  panel — auto-attribution is impossible, see header). */
+export type NameResourceType = 'd1' | 'kv' | 'pages';
 
 /** One resource row (a worker, a pages deployment, a database...). `id` is
  *  the GraphQL dimension value (normalized bare hex for KV) — internal only,
  *  NEVER rendered in HTML or serialized by the API; `name` is the display
- *  string (dimension value itself, resolved REST name, tagged Pages worker
- *  name, or 8-char short id). `metrics` = today (UTC), `metrics_prev` =
- *  yesterday (UTC). No URL field on purpose — see the Pages header note. */
+ *  string (dimension value itself, resolved REST name, operator Pages alias,
+ *  tagged Pages worker name, or 8-char short id). `metrics` = today (UTC),
+ *  `metrics_prev` = yesterday (UTC). No URL field on purpose — see the
+ *  Pages header note. */
 export interface ResourceItem {
   id: string;
   name: string;
@@ -188,6 +199,10 @@ const parsePagesTag = (raw: string): string => {
   return m ? `pages-worker #${m[1]}（${m[2]}）` : raw;
 };
 
+/** Admin alias-save validation: the alias key must be a real internal Pages
+ *  scriptName — anything else has no analytics row to name. */
+export const isPagesScriptName = (raw: string): boolean => PAGES_TAG_RE.test(raw);
+
 /** Parse viewer.accounts[0] of the detail query into grouped, named, sorted
  *  items. Each row carries a time dimension (date / datetimeHour) — rows on
  *  today's UTC day accumulate into `metrics`, everything else (yesterday,
@@ -257,7 +272,7 @@ export function parseResourceDetail(
 
   const itemsByType: Record<ResourceGroupType, ResourceItem[]> = {
     workers: named(buckets.workers, (i) => i.id),
-    pages: named(buckets.pages, (i) => parsePagesTag(i.id)),
+    pages: named(buckets.pages, (i) => names.pages?.get(i.id) ?? parsePagesTag(i.id)),
     d1: named(buckets.d1, (i) => names.d1?.get(i.id) ?? shortId(i.id)),
     kv: kvItems,
     r2: named(buckets.r2, (i) => i.id),
@@ -306,6 +321,12 @@ export function resetResourceCaches(): void {
   detailCache.clear();
 }
 
+/** Drop one account's cached detail (admin alias save) — the next fragment
+ *  request re-fetches with fresh names instead of waiting out the TTL. */
+export function invalidateDetailCache(accountId: string): void {
+  detailCache.delete(accountId);
+}
+
 async function findEnabledAccountByLabel(db: D1Database, label: string): Promise<CfAccount | null> {
   const row = await db
     .prepare('SELECT * FROM cf_accounts WHERE label = ? AND enabled = 1 ORDER BY created_at LIMIT 1')
@@ -315,7 +336,8 @@ async function findEnabledAccountByLabel(db: D1Database, label: string): Promise
 }
 
 /** All stored names for an account, split by type (KV ids normalized bare
- *  hex; D1 uuids kept verbatim — both sides of that join are hyphenated). */
+ *  hex; D1 uuids and raw Pages scriptNames kept verbatim — both sides of
+ *  those joins are the dimension values). */
 async function loadNames(
   db: D1Database,
   accountId: string
@@ -326,7 +348,7 @@ async function loadNames(
     .all<{ resource_type: string; resource_id: string; name: string }>();
   const names: Partial<Record<NameResourceType, Map<string, string>>> = {};
   for (const row of rows.results ?? []) {
-    if (row.resource_type !== 'd1' && row.resource_type !== 'kv') continue;
+    if (row.resource_type !== 'd1' && row.resource_type !== 'kv' && row.resource_type !== 'pages') continue;
     const map = names[row.resource_type] ?? new Map<string, string>();
     map.set(row.resource_type === 'kv' ? normalizeNsId(row.resource_id) : row.resource_id, row.name);
     names[row.resource_type] = map;

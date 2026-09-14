@@ -174,13 +174,18 @@ CREATE INDEX IF NOT EXISTS idx_cf_accounts_enabled ON cf_accounts(enabled) WHERE
 -- opaque ids — this table maps them to the names the REST list endpoints
 -- return. Refreshed at most daily per (account, resource_type) by the
 -- 30-min poller (refreshResourceNamesIfNeeded in cfResources ts) and read
--- by the detail fragment and the usage API. No extra index needed: every
--- read is a full scan of one account's few dozen rows and the PK prefix
--- (account_id, resource_type) already covers the refresh gate query
+-- by the detail fragment and the usage API. resource_type='pages' rows are
+-- OPERATOR ALIASES (admin Pages-alias panel, 2026-09-14): CF exposes no
+-- API mapping from the internal pages-worker--<digits>-<env> scriptName to
+-- the project, so the operator names each one manually, and the daily replace-
+-- set refresh only touches d1/kv and never pages rows. No extra index
+-- needed: every read is a full scan of one account's few dozen rows and
+-- the PK prefix (account_id, resource_type) already covers the refresh
+-- gate query
 CREATE TABLE IF NOT EXISTS cf_resource_names (
     -- CF account tag (32 hex) — joins cf_accounts
     account_id TEXT NOT NULL,
-    -- Which REST list the row came from: 'd1' or 'kv'
+    -- Which REST list the row came from: 'd1' or 'kv' ('pages' = operator alias, admin panel)
     resource_type TEXT NOT NULL,
     -- database uuid (D1, hyphenated) or namespace id normalized to bare hex (KV)
     resource_id TEXT NOT NULL,
