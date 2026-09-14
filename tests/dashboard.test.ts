@@ -114,6 +114,24 @@ describe('GET / — dual-tab homepage with CF usage pane', () => {
     expect(html).toContain('預估'); // projected end-of-day value in the tooltip
   });
 
+  it('colors by FORECAST ratio: low measured % + over-quota projection → danger color + chip + top rank (2026-09-14 ask)', async () => {
+    // Burner: 20% measured but projecting 150% of quota — must look like a
+    // breach; Steady: 30% measured, no projection. Before the fix the card
+    // showed a plain bar, no chip, and sorted below Steady.
+    await seedCfAccount({ label: 'Burner' });
+    await seedUsage(TEST_CF.accountId, 'd1_rows_written', 20_000, 150_000);
+    await seedCfAccount({ account_id: TEST_CF.accountIdB, api_token: TEST_CF.tokenB, label: 'Steady' });
+    await seedUsage(TEST_CF.accountIdB, 'd1_rows_written', 30_000);
+
+    const res = await SELF.fetch('http://localhost/');
+    const html = await res.text();
+    // Burner's row: measured 20% width but danger color from the forecast
+    expect(html).toMatch(/class="cf-bar-fill cf-danger cf-projected"/);
+    // chip counts the forecast-breach row; Burner ranks above the raw-30% card
+    expect(html).toContain('1 項 ≥60%');
+    expect(html.indexOf('Burner')).toBeLessThan(html.indexOf('Steady'));
+  });
+
   it('renders unquoted metrics (workers_errors) as value-only, no bar', async () => {
     await seedCfAccount();
     await seedUsage(TEST_CF.accountId, 'workers_errors', 5);
@@ -211,10 +229,10 @@ describe('GET /cf-usage/detail — resource detail fragment', () => {
     // workers: dimension value is the name; adaptive rows accumulated
     expect(html).toContain('watch-dog');
     expect(html).toContain('1,500');
-    // pages: internal deployment name parsed into project（env）+ pages.dev URL;
-    // the raw `--13581012--` internal form never reaches the page
-    expect(html).toContain('pages-worker（production）');
-    expect(html).toContain('https://pages-worker.pages.dev');
+    // pages: internal deployment name parsed into a tagged distinguishable name;
+    // NO pages.dev link (the digits map to no project via any API — 2026-09-14 fix)
+    expect(html).toContain('pages-worker #13581012（production）');
+    expect(html).not.toContain('pages.dev');
     expect(html).not.toContain('--13581012');
     // yesterday's column: d1 rowsRead 1,000,000 / pages requests 250
     expect(html).toContain('昨 1,000,000');

@@ -377,7 +377,7 @@ interface UsageAccountShape {
   detail?: {
     groups: Array<{
       type: string;
-      items: Array<{ name: string; url?: string; metrics: Record<string, number>; metrics_yesterday: Record<string, number> }>;
+      items: Array<{ name: string; metrics: Record<string, number>; metrics_yesterday: Record<string, number> }>;
     }>;
   } | null;
   detail_error?: string;
@@ -515,10 +515,11 @@ describe('GET /api/cf-usage', () => {
     const d1Item = good?.detail?.groups.find((g) => g.type === 'd1')?.items[0];
     expect(d1Item?.metrics.d1_rows_read).toBe(100);
     expect(d1Item?.metrics_yesterday.d1_rows_read).toBe(50);
-    // pages: parsed name + production pages.dev URL, no internal deployment name
+    // pages: tagged distinguishable name, NO url (digits map to no project via
+    // any API — fabricated links were the 2026-09-14 bug)
     const pagesItem = good?.detail?.groups.find((g) => g.type === 'pages')?.items[0];
-    expect(pagesItem?.name).toBe('pages-worker（production）');
-    expect(pagesItem?.url).toBe('https://pages-worker.pages.dev');
+    expect(pagesItem?.name).toBe('pages-worker #13581012（production）');
+    expect(JSON.stringify(body)).not.toContain('pages.dev');
     expect(JSON.stringify(body)).not.toContain('--13581012');
     const bad = body.accounts.find((a) => a.label === 'Bad');
     expect(bad?.detail_error).toContain('HTTP 500');

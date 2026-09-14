@@ -462,14 +462,14 @@ interface ApiUsageMetric {
 }
 
 /** Detail groups with resource ids stripped — ids (esp. KV namespace ids,
- *  32 bare hex) must never reach the response; names suffice. `url` only
- *  for Pages production (pages.dev — derivable without the account id). */
+ *  32 bare hex) must never reach the response; names suffice. Pages rows
+ *  carry no URL: the scriptName digits map to no project via any API
+ *  (see cfResources.ts header) — any link would be fabricated. */
 interface ApiResourceGroup {
   type: ResourceGroupType;
   title: string;
   items: Array<{
     name: string;
-    url?: string;
     metrics: Record<string, number>;
     /** Yesterday (UTC) — same keys as metrics; missing key = no usage. */
     metrics_yesterday: Record<string, number>;
@@ -501,7 +501,6 @@ const toApiDetail = (detail: ResourceDetail): ApiResourceDetail => ({
     title: g.title,
     items: g.items.map((item) => ({
       name: item.name,
-      ...(item.url ? { url: item.url } : {}),
       metrics: item.metrics,
       metrics_yesterday: item.metrics_prev,
     })),

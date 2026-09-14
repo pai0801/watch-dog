@@ -17,12 +17,18 @@
 // (limit raised 100→200 to match; ≤2 rows per resource per day per
 // dataset at the date/datetimeHour granularity, live-verified 2026-09-14).
 //
-// Pages scriptName values are CF-internal deployment names
-// (`<project>--<account-snippet>-<env>`) — unreadable to humans. They are
-// parsed into `<project>（<env>）` with a production link to
-// `https://<project>.pages.dev` (the only URL derivable WITHOUT the
-// account id — dashboard URLs would leak the 32-hex id onto the public
-// fragment; preview deployments have no stable public URL, so no link).
+// Pages scriptName values are CF-internal deployment names of the form
+// `pages-worker--<8-digit>-<env>`. Live-verified 2026-09-14 (paipeter
+// account): `pages-worker` is CF's GENERIC internal Functions worker name —
+// NOT the project name. The 8-digit number appears nowhere in the REST
+// surface (pages/projects, per-project deployments, workers/scripts all
+// grepped, zero hits), the dataset exposes no projectName dimension
+// (schema-introspected: date/datetime*/scriptName/status/usageModel only),
+// and Pages projects do NOT appear under their real names in
+// workersInvocationsAdaptive. Per-row project attribution is therefore
+// IMPOSSIBLE via API — rows render as `pages-worker #<digits>（<env>）`
+// (the digits at least distinguish same-env rows) with NO link: any
+// pages.dev URL would be fabricated.
 //
 // SECURITY: ResourceDetail intentionally has NO account id field — the
 // fragment and API responses are assembled from labels only (source-level
@@ -38,13 +44,12 @@ export type NameResourceType = 'd1' | 'kv';
 /** One resource row (a worker, a pages deployment, a database...). `id` is
  *  the GraphQL dimension value (normalized bare hex for KV) — internal only,
  *  NEVER rendered in HTML or serialized by the API; `name` is the display
- *  string (dimension value itself, resolved REST name, parsed Pages project
+ *  string (dimension value itself, resolved REST name, tagged Pages worker
  *  name, or 8-char short id). `metrics` = today (UTC), `metrics_prev` =
- *  yesterday (UTC); `url` only for Pages production (see header). */
+ *  yesterday (UTC). No URL field on purpose — see the Pages header note. */
 export interface ResourceItem {
   id: string;
   name: string;
-  url?: string;
   metrics: Record<string, number>;
   metrics_prev: Record<string, number>;
 }
@@ -174,21 +179,13 @@ const SORT_KEYS: Record<ResourceGroupType, readonly [string, string | null]> = {
  *  32-hex leak guard must stay clean on every public surface). */
 const shortId = (id: string): string => `${id.slice(0, 8)}…`;
 
-/** Pages scriptName format: `<project>--<account-snippet>-<env>` (single
- *  hyphen before the env — as observed in live dimension values, e.g.
- *  `pages-worker--14766800-production`). Only a DNS-safe project name gets
- *  a pages.dev URL (defensive: the value is upstream-controlled text
- *  heading into an href). */
-const PAGES_NAME_RE = /^(.+)--\d+-(production|preview)$/;
-const parsePagesName = (raw: string): { name: string; url?: string } => {
-  const m = PAGES_NAME_RE.exec(raw);
-  if (!m) return { name: raw };
-  const [, project, env] = m;
-  const dnsSafe = /^[a-z0-9-]+$/i.test(project);
-  return {
-    name: `${project}（${env}）`,
-    url: env === 'production' && dnsSafe ? `https://${project}.pages.dev` : undefined,
-  };
+/** Pages scriptName format: `pages-worker--<digits>-<env>` — the digits are
+ *  CF-internal (see header). Parse to `pages-worker #<digits>（<env>）` so
+ *  same-env rows stay distinguishable; anything else renders verbatim. */
+const PAGES_TAG_RE = /^pages-worker--(\d+)-(production|preview)$/;
+const parsePagesTag = (raw: string): string => {
+  const m = PAGES_TAG_RE.exec(raw);
+  return m ? `pages-worker #${m[1]}（${m[2]}）` : raw;
 };
 
 /** Parse viewer.accounts[0] of the detail query into grouped, named, sorted
@@ -260,7 +257,7 @@ export function parseResourceDetail(
 
   const itemsByType: Record<ResourceGroupType, ResourceItem[]> = {
     workers: named(buckets.workers, (i) => i.id),
-    pages: [...buckets.pages.values()].map((item) => ({ ...item, ...parsePagesName(item.id) })),
+    pages: named(buckets.pages, (i) => parsePagesTag(i.id)),
     d1: named(buckets.d1, (i) => names.d1?.get(i.id) ?? shortId(i.id)),
     kv: kvItems,
     r2: named(buckets.r2, (i) => i.id),

@@ -322,10 +322,17 @@ export async function getTodayCfUsage(db: D1Database): Promise<CfUsageData> {
       const quota = quotaFor(row.metric, card.plan);
       // unranked metrics (R2 storage) display in details but never rank
       if (quota <= 0 || def?.unranked) continue;
+      // Forecast-aware severity (operator ask 2026-09-14): an early-day
+      // runaway projecting past the quota must warn/rank as if it hit it —
+      // effective ratio = max(measured, poll-time burn-rate projection).
+      // Slack alerts already did this (classifyMetric projection variant);
+      // the card surfaces now agree with them.
       const ratio = row.value / quota;
-      if (ratio >= WARN_THRESHOLD) card.warnCount++;
-      if (ratio > card.maxRatio) {
-        card.maxRatio = ratio;
+      const projRatio = row.projected_eod !== null ? row.projected_eod / quota : 0;
+      const effRatio = Math.max(ratio, projRatio);
+      if (effRatio >= WARN_THRESHOLD) card.warnCount++;
+      if (effRatio > card.maxRatio) {
+        card.maxRatio = effRatio;
         card.topMetric = row;
       }
     }

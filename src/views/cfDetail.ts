@@ -61,11 +61,7 @@ const GroupTable = (group: ResourceGroup) => html`
       ${group.items.map(
         (item) => html`
         <tr>
-          <td class="cf-res-name">${
-            item.url
-              ? html`<a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.name}</a>`
-              : item.name
-          }</td>
+          <td class="cf-res-name">${item.name}</td>
           ${GROUP_COLUMNS[group.type].map((m) => MetricCell(m, item))}
         </tr>
         `

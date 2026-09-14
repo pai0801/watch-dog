@@ -145,22 +145,26 @@ describe('parseResourceDetail', () => {
     expect(detail.groups[3].items[0].metrics.kv_storage_bytes).toBe(1024);
   });
 
-  it('parses Pages deployment names into project（env） with a production pages.dev URL', () => {
+  it('parses Pages scriptNames into tagged distinguishable names, never a URL (2026-09-14 fix)', () => {
     const node = {
       pgs: [
         { dimensions: { scriptName: 'pages-worker--13581012-production', date: '2026-09-11' }, sum: { requests: 300 } },
+        { dimensions: { scriptName: 'pages-worker--11282108-production', date: '2026-09-11' }, sum: { requests: 7 } },
         { dimensions: { scriptName: 'pages-worker--13581012-preview', date: '2026-09-11' }, sum: { requests: 5 } },
         { dimensions: { scriptName: 'plain-worker-name', date: '2026-09-11' }, sum: { requests: 1 } },
       ],
     };
     const detail = parseResourceDetail('X', node, {}, CF_TEST_NOW / 1000);
     const byName = new Map(detail.groups[0].items.map((i) => [i.name, i]));
-    expect(byName.get('pages-worker（production）')?.url).toBe('https://pages-worker.pages.dev');
-    expect(byName.get('pages-worker（production）')?.metrics.pages_requests).toBe(300);
-    // preview deployments have no stable public URL
-    expect(byName.get('pages-worker（preview）')?.url).toBeUndefined();
-    // non-matching scriptName: raw name, no url
-    expect(byName.get('plain-worker-name')?.url).toBeUndefined();
+    // `pages-worker` is CF's generic internal name — the digits distinguish rows
+    expect(byName.get('pages-worker #13581012（production）')?.metrics.pages_requests).toBe(300);
+    expect(byName.get('pages-worker #11282108（production）')?.metrics.pages_requests).toBe(7);
+    expect(byName.get('pages-worker #13581012（preview）')?.metrics.pages_requests).toBe(5);
+    // non-matching scriptName renders verbatim
+    expect(byName.get('plain-worker-name')).toBeDefined();
+    // NO url anywhere — the digits map to no project via any API (fabricated links were the 09-14 bug)
+    expect(JSON.stringify(detail)).not.toContain('pages.dev');
+    expect(JSON.stringify(detail)).not.toContain('url');
   });
 
   it('omits empty groups entirely', () => {

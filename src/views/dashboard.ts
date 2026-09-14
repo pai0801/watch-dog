@@ -121,10 +121,11 @@ export const ProjectGrid = (projectsWithChecks: Array<Parameters<typeof ProjectC
     `;
 
 /** One metric line: name | value, then bar + pct when the metric has a quota.
- *  Bar color is status (plain <60% / amber >=60% / red >=80%) — the printed
- *  percentage is the primary signal, color only reinforces (never
- *  color-alone); a projected-over-quota row adds 45-degree stripes + a
- *  warning flag with the projected end-of-day value in the tooltip. */
+ *  Bar color is FORECAST status — max of the measured ratio and the poll-time
+ *  burn-rate projection (operator ask 2026-09-14: an early-day runaway must
+ *  color like a breach, not wait until the measured ratio crosses 60%/80%).
+ *  The printed percentage, bar width and value stay MEASURED; the projection
+ *  surfaces via the 45° stripes + ⚠ flag with the EOD value in the tooltip. */
 const CfMetricLine = (row: CfMetricRowData, plan: CfPlanId) => {
   const def = METRICS[row.metric];
   const quota = quotaFor(row.metric, plan);
@@ -150,7 +151,8 @@ const CfMetricLine = (row: CfMetricRowData, plan: CfPlanId) => {
   }
 
   const pct = row.value / quota;
-  const level = pct >= 0.8 ? ' cf-danger' : pct >= 0.6 ? ' cf-warn' : '';
+  const effPct = Math.max(pct, row.projected_eod !== null ? row.projected_eod / quota : 0);
+  const level = effPct >= 0.8 ? ' cf-danger' : effPct >= 0.6 ? ' cf-warn' : '';
   const fillClass = `cf-bar-fill${level}${projectedOver ? ' cf-projected' : ''}`;
   return html`
     <div class="cf-metric" title="${title}">
@@ -179,7 +181,7 @@ const CfAccountCard = (card: CfAccountCardData) => html`
   <div class="cf-account-header">
     <h3>${card.label}</h3>
     <div class="cf-account-header-right">
-      ${card.warnCount > 0 ? html`<span class="cf-warn-chip">${card.warnCount} 項 ≥60%</span>` : ''}
+      ${card.warnCount > 0 ? html`<span class="cf-warn-chip" title="已用或燃燒速率預估 ≥60% 的指標數">${card.warnCount} 項 ≥60%</span>` : ''}
       <span class="cf-plan-badge">${card.plan}</span>
     </div>
   </div>
