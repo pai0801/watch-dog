@@ -12,6 +12,7 @@ import type { AppBindings } from './types';
 import dashboardRoutes from './routes/dashboard';
 import apiRoutes from './routes/api';
 import adminRoutes from './routes/admin';
+import schedulesRoutes from './routes/schedules';
 import { scheduled } from './cron';
 import { assertBindings } from './lib/bindings';
 
@@ -19,6 +20,11 @@ const app = new Hono<{ Bindings: AppBindings }>();
 
 app.route('/', dashboardRoutes);
 app.route('/', apiRoutes);
+// Public token-scoped API must mount BEFORE adminRoutes: admin registers
+// `use('*', adminAuth)` which applies app-wide when mounted at '/', and
+// middleware/handlers run in registration order (later-mounted handlers
+// would be gated by Basic Auth). Same reason apiRoutes sits above.
+app.route('/', schedulesRoutes);
 app.route('/', adminRoutes);
 
 export default {

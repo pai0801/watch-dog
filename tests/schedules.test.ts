@@ -2,6 +2,7 @@
 // Scheduler hub: signature pure functions, due-fire engine, registration API,
 // admin read-only view, cron wiring.
 
+import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { network } from './network';
@@ -216,5 +217,147 @@ describe('runDueSchedules', () => {
     expect(hits.map((h) => h.url)).not.toContain('/job-25');
     // leftovers stay due for the next tick
     expect((await getSchedule(25))?.next_run_at).toBe(25);
+  });
+});
+
+const TOKEN = 'tok-1234567890';
+const auth = { Authorization: `Bearer ${TOKEN}` };
+const jsonHeaders = { 'Content-Type': 'application/json' };
+
+const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
+  SELF.fetch(`http://localhost${url}`, {
+    method: 'POST',
+    headers: { ...jsonHeaders, ...headers },
+    body: JSON.stringify(body),
+  });
+const get = (url: string, headers: Record<string, string> = {}) =>
+  SELF.fetch(`http://localhost${url}`, { headers });
+const put = (url: string, body: unknown, headers: Record<string, string> = {}) =>
+  SELF.fetch(`http://localhost${url}`, {
+    method: 'PUT',
+    headers: { ...jsonHeaders, ...headers },
+    body: JSON.stringify(body),
+  });
+const del = (url: string, headers: Record<string, string> = {}) =>
+  SELF.fetch(`http://localhost${url}`, { method: 'DELETE', headers });
+
+describe('POST /api/schedules (AC1)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('rejects missing token (401), bad token (403), unknown project (404)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const body = { project_id: 'svc', name: 'tick', callback_url: 'https://cb.test.local/x' };
+    expect((await post('/api/schedules', body)).status).toBe(401);
+    expect((await post('/api/schedules', body, { Authorization: 'Bearer wrong' })).status).toBe(403);
+    expect(
+      (await post('/api/schedules', { ...body, project_id: 'nope' }, auth)).status
+    ).toBe(404);
+  });
+
+  it('validates name, url, interval (400)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const base = { project_id: 'svc', callback_url: 'https://cb.test.local/x' };
+    expect((await post('/api/schedules', { ...base, name: '' }, auth)).status).toBe(400);
+    expect((await post('/api/schedules', { ...base, name: 'ok', callback_url: 'http://insecure' }, auth)).status).toBe(400);
+    expect((await post('/api/schedules', { ...base, name: 'ok', interval_minutes: 'abc' }, auth)).status).toBe(400);
+  });
+
+  it('creates a schedule, returns the secret exactly once, first fire one interval out (AC2)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const before = nowSec();
+
+    const res = await post(
+      '/api/schedules',
+      { project_id: 'svc', name: 'hourly', callback_url: 'https://cb.test.local/x', interval_minutes: 60 },
+      auth
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json<{ schedule: { id: number; secret: string; next_run_at: number } }>();
+    expect(data.schedule.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(data.schedule.next_run_at).toBeGreaterThanOrEqual(before + 3600);
+
+    const row = await getSchedule(data.schedule.id);
+    expect(row?.name).toBe('hourly');
+    // list view NEVER carries the secret
+    const listRes = await get('/api/schedules?project_id=svc', auth);
+    const list = await listRes.json<{ schedules: Array<{ secret?: string }> }>();
+    expect(list.schedules).toHaveLength(1);
+    expect(list.schedules[0].secret).toBeUndefined();
+  });
+
+  it('rejects duplicate name within a project (409)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { name: 'hourly' });
+    const res = await post(
+      '/api/schedules',
+      { project_id: 'svc', name: 'hourly', callback_url: 'https://cb.test.local/x' },
+      auth
+    );
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('ownership (AC1: no cross-project oracle)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('hides another project schedule behind 404 and lists only own rows', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedProject({ id: 'other', token: 'other-token-1234567890' });
+    const s = await seedSchedule('other');
+
+    expect((await get(`/api/schedules/${s.id}?project_id=svc`, auth)).status).toBe(404);
+    expect((await put(`/api/schedules/${s.id}?project_id=svc`, { interval_minutes: 5 }, auth)).status).toBe(404);
+    expect((await del(`/api/schedules/${s.id}?project_id=svc`, auth)).status).toBe(404);
+
+    const list = await (await get('/api/schedules?project_id=svc', auth)).json<{ schedules: unknown[] }>();
+    expect(list.schedules).toHaveLength(0);
+  });
+});
+
+describe('PUT /api/schedules/:id (AC1/AC4)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('updates fields; interval change does NOT recompute next_run_at', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { next_run_at: 12345 });
+
+    const res = await put('/api/schedules/101?project_id=svc', { interval_minutes: 5, paused: 1 }, auth);
+    expect(res.status).toBe(200);
+    const row = await getSchedule(101);
+    expect(row?.interval_minutes).toBe(5);
+    expect(row?.paused).toBe(1);
+    expect(row?.next_run_at).toBe(12345); // untouched by design
+  });
+
+  it('rejects invalid name (400) and rename collisions (409)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { id: 101, name: 'a' });
+    await seedSchedule('svc', { id: 102, name: 'b' });
+
+    expect((await put('/api/schedules/101?project_id=svc', { name: 'bad name!' }, auth)).status).toBe(400);
+    expect((await put('/api/schedules/101?project_id=svc', { name: 'b' }, auth)).status).toBe(409);
+  });
+});
+
+describe('DELETE /api/schedules/:id (AC1)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('removes the schedule', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc');
+    expect((await del('/api/schedules/101?project_id=svc', auth)).status).toBe(200);
+    expect(await getSchedule(101)).toBeNull();
   });
 });
