@@ -190,3 +190,46 @@ curl -s https://watch-dog.helperp.workers.dev/api/status/my-service | jq
 | config 回 200 但 check 沒出現 | 該條目無效被靜默跳過（type 不合法 / name 空值）——比對 `checks_registered` |
 | 沒收到 Slack 警報 | check 是否被 admin 暫停（monitor=0）？project 是否在維護模式？是否仍在 cooldown/靜默期？ |
 | 一直誤報 DEAD | `interval` 設得比實際發 pulse 週期短——interval 要 ≈ 你的發送週期、grace 吸收抖動 |
+
+## 接收排程觸發（scheduler hub）
+
+watch-dog 到期會對你的 callback_url 發：
+
+- Method: `POST`，`Content-Type: application/json`
+- Header: `X-Schedule-Signature: t=<fired_at>,v1=<hex>`，其中
+  `v1 = HMAC-SHA256(secret, "<fired_at>.<schedule_id>.<scheduled_at>")`
+- Body: `{"schedule_id": 7, "scheduled_at": 1760000000, "fired_at": 1760000001}`
+
+回 `2xx` 即 ack；其他（或 10s timeout）記一次失敗。**fire 前已推進下週期**——失敗等
+滿一個 interval 才會再試，你不會被重錘；註冊時 `retry_count: 1` 可加一次當場重試
+（重試重用同一簽名時間戳——驗收新鮮度窗口建議 ≥ 60 秒）。
+
+### 驗簽（防偽造/重放，務必做）
+
+```js
+export async function verifySchedule(request, secret) {
+  const m = (request.headers.get('X-Schedule-Signature') ?? '').match(/^t=(\d+),v1=([0-9a-f]{64})$/);
+  if (!m) return false;
+  const [, t, v1] = m;
+  const body = await request.json(); // { schedule_id, scheduled_at, fired_at }
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${t}.${body.schedule_id}.${body.scheduled_at}`));
+  const hex = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const fresh = Math.abs(Date.now() / 1000 - Number(t)) < 300; // 5 分鐘新鮮度
+  return fresh && hex === v1;
+}
+```
+
+### 高精度 pattern（dumb ticker 的正確用法）
+
+CF cron tick 本身有延遲。需要「每 10 分鐘跑一次、誤差別太大」時：註冊
+`interval_minutes: 1`，你的 handler 自己持久化 last-run 時間、`now - last >= 600` 才
+執行事件——漏 tick 下次喚醒自動補，drift 不累積（用 body 的 `fired_at` 算 elapsed）。
+
+### 失敗語義（註冊時自選，hub 永不替你決定）
+
+- `retry_count`：0（預設）或 1（失敗當場補一次）。
+- `alert_after_failures`：0（預設 off）或 N——連敗**跨越** N 時 watch-dog 發 Slack
+  warning 給操作者；成功歸零。**沒有自動暫停**——你的排程永遠不會被 hub 靜默停掉。
+- `paused`：你自己設的維護窗（PUT `{"paused":1}`），回復同樣自助。

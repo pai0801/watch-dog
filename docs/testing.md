@@ -68,3 +68,24 @@ Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.
 - [ ] Chrome/Edge: All features work
 - [ ] Firefox: All features work
 - [ ] Safari: All features work
+
+### Scheduler Hub（2026-10-19，D28 Proposed → 實作後改 Verified）
+
+自動化覆蓋在 `tests/schedules.test.ts`（app pool，workerd 全保真），`npm test` 即跑：
+
+- **簽名純函數**：`signScheduleHeader` 含 RFC 4231 known-answer test（KAT）——
+  `t=<fired_at>,v1=<hex>`、v1 = HMAC-SHA256(secret, `fired_at.schedule_id.scheduled_at`)。
+- **due 引擎**：fire + next_run_at 前推（at-most-once）、skip 未到期與 paused、
+  失敗不重錘（等滿一個 interval）、retry_count=1 當場補一次、連敗跨越
+  alert_after_failures 發 Slack warning、alert_after_failures=0 不發、
+  batch cap 20（fire）與 5（alert）、fetch-throw catch 分支。
+- **註冊 API（/api/schedules）**：auth trio（無 token 401／錯 token 403／未知 project 404；成功路徑由建立測試覆蓋 200）、
+  欄位驗證（name/callback_url/project_id）、numeric fail-loud（"60"/true → 400）、
+  clamps（interval 1–10080、retry 0–1、alert 0–100）、ownership 404（跨 project）、
+  PUT/DELETE、同 project name 衝突 409。
+- **admin 唯讀**：GET /admin/schedules 401（未認證）、secret 永不出現在任何回應、
+  排序＋paused 可見。
+- **cron wiring**：scheduled handler 端到端 fire；不變式①隔離——scheduler 回呼失敗
+  不破壞 fail-dead dead-check（雙釘測試）。
+
+狀態：**Verified**——全部已實作並有測試（217 passing）。

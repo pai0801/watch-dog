@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-10-19] Scheduler Hub（排程觸發樞紐）——dumb-ticker 排程回呼＋cron */1
+
+**目標**：plan `docs/plans/2026-10-19-scheduler-hub-plan.md`（tier major 全 gate；設計 `docs/plans/2026-10-19-scheduler-hub-design.md`）。把 watch-dog 升級為排程樞紐：受監專案用既有 project token 註冊固定間隔 HTTPS 回呼（`POST /api/schedules`，secret 建立時回傳一次），每分鐘 tick 到期主動 POST 叫醒（HMAC-SHA256 簽名防偽造/重放）——1 條既有 cron slot 服務全部專案（帳號 Free 5-cron 上限已滿）。
+**原因**：非修復——功能新增，動機是兩次 deploy code 10072（slot 撞牆）。關鍵設計（與操作者定案）：dumb ticker——hub 只負責叫醒，精度/debounce/冪等/漏 tick 自癒全在目標端（高精度=註冊 1 分鐘自行節流）；fire 前先推進 `next_run_at`（at-most-once per period，失敗目標永不重錘）；retry/alert 門檻是註冊方自選資料；無自動暫停；admin 唯讀（secret 永不 SELECT）。cron `*/5`→`*/1`（slot 計條數非頻率——2026-09-23 註解的「放寬讓 slot」其實是誤判，getkm ef457dc42d3a）。
+**預期結果**：D1 `schedules` 表＋`idx_schedules_due`；`src/services/scheduler.ts`（簽名純函數＋`runDueSchedules`：due 撈取 LIMIT 20→先推進→簽名 POST（10s timeout，可選 retry 1 次）→記錄→連敗跨越 `alert_after_failures` 發 Slack warning（≤5/tick）；subrequest 預算 20×2+5=45≤50）；`src/routes/schedules.ts` 自助 CRUD（ownership 404 無 oracle、上界 clampRange、fail-loud numerics、conflict-target 409）；`GET /admin/schedules` 唯讀；cron 接線獨立 try/catch 於 fail-dead 之後（不變式①）。文件：README/api.md/client-guide.md（驗簽範例＋高精度 pattern）/testing.md。
+**範圍**：`src/db.sql`、`src/types.ts`、`src/services/scheduler.ts`（新）、`src/routes/schedules.ts`（新）、`src/routes/admin.ts`、`src/index.ts`、`src/cron.ts`、`src/lib/validate.ts`（+clampRange）、`wrangler.jsonc`、`tests/schedules.test.ts`（新，30 tests）、`tests/utils.ts`、`tests/guards/portability.test.ts`（§B 掃描器鏈終點收邊——修無參數 `.prepare().all<T>()` 掃過界誤報）；文件六件＋TODO-REVIEW（#27 adminAuth `use('*')` 側漏、#28 測試 helper 重複）。commit 鏈：88b4991 設計+plan→76b741e schema→9b032a5 FK 順序→c9e2873 簽名→bfae839 RFC KAT→c393d7f 引擎→a54cab7 引擎強化→7fef576 API→588eb79 clamp→20a7f7e API 強化→f7dee10 admin→72371a3 cron 接線→d806c70 測試修正→0f22a61 文件→ab5c42a guard 修。
+**驗證**：`make ci` 全綠（tsc ✓ / ESLint ✓ / app pool **217/217** ✓（+37 測試）/ guards 21/21 ✓ / §L ✓ / §M 僅既有 legacy warns）。每 task 雙階段審查（spec compliance → quality）共抓出並修正：FK 刪除順序、clampInt 第三參數誤用（上界沒夾）、admin mount 順序（adminAuth `use('*')` 側漏）、RFC 4231 引文誤引、INSERT 競態 500、測試真網路洩漏（Slack mock 缺）、§B guard 誤報。測試環境發現（記 dev-brain cbbfde62cf5c / 3f87eb33ddb0）：workerd 下 dispatch-stage fetch 失敗（DNS/unsupported scheme）會漏 runtime unhandled rejection、parse-stage 失敗不會——模擬 fetch 失敗用 500 或非 URL 字串。
+
 ### [2026-09-12] 存量債清理輪 #20–#26——timingSafeEqual 位元組長度、label 唯一性、admin 文件、dev-tunnel kill_port、final-review 三 Nit
 
 **目標**：清償 TODO-REVIEW #20–#26（全輪 final review APPROVED 後操作者指示 go 的存量債批次；#20–#22 為 Task 8/9 quality review 登記、#23 為 Task 10 實踩、#24–#26 為 final review Nit）。

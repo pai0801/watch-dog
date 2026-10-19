@@ -16,6 +16,7 @@
 > #23 為同輪 Task 10 dev 起動時實踩的既有腳本債（dev-tunnel.sh kill_port 多 PID 失效＋ngrok 變數名錯），待排程。
 > #24–#26 為 2026-09-12 全輪 final code review（verdict APPROVED）回報的 Nit 級新債；第四項 Nit（collapse 亦觸發
 > refetch）經查在 ≤1 query/account/5-min 上限內屬既知行為，非債。
+> #27/#28 為 2026-10-19 scheduler hub 輪 review 發現的存量債，待排程（[NEVER] build 裡順手重構）。
 > 2026-09-12 存量債清理輪：#20–#26 全數清償（操作者指示後逐項 TDD/實測，見 FIX-LOG 同日第二則）。
 > 表列 row 保留為歷史記錄，處置細節見各 commit 與 FIX-LOG 條目。
 
@@ -47,6 +48,8 @@
 | 24 | `src/views/cfDetail.ts:65,75`（fragment root）× `src/views/dashboard.ts:193`（trigger 容器） | 兩處同帶 `cf-detail` class：htmx innerHTML swap 後巢狀 → `margin-top: 0.5rem` 疊成 1rem（純視覺，成功與錯誤 root 皆然）。2026-09-12 final review 發現 | fragment root（成功＋錯誤兩處）拔掉 `cf-detail` class；隨下次部署生效 | 已清償 2026-09-12（清理輪 70aab73——成功/錯誤 root 拔 class；隨下次部署生效） |
 | 25 | `src/routes/dashboard.ts:25-26` 註解 | 「cache-spray 防護」過度宣稱：label 100 字元上限只約束**單一 key 大小**，`accountByLabelCache` 的 distinct-key 數仍無上界（public 端 distinct-label probing 可讓 map 無界成長——僅記憶體層面；重複 label 有 5 分鐘 TTL 快取，單操作者系統可接受）。同輪 final review 發現 | 註解改為「bounds per-key size」語義，勿暗示防 count-spray | 已清償 2026-09-12（清理輪 9382fe9——改 bounds key SIZE 語義） |
 | 26 | `tests/routes/` cf-detail 錯誤路徑 | 32-hex 洩漏 guard（`/[0-9a-f]{32}/`）只在成功路徑斷言；`detail_error`／fragment 錯誤面板承載 upstream 控制的錯誤文字（截 200 字元），錯誤路徑未針測。CF 錯誤訊息通常不回顯 account tag，但 guard 迴路未閉 | 兩個錯誤路徑測試（API `detail_error`＋fragment 錯誤面板）補 32-hex regex 斷言 | 已清償 2026-09-12（清理輪 6a38b48——API 側查明已覆蓋，fragment 匯誤面板補斷言） |
+| 27 | `src/routes/admin.ts`（`admin.use('*', adminAuth)`） | adminAuth 側漏：middleware 在 mount-at-'/' 時全域生效——route mount 順序成為承重牆（api/schedules 必須 mount 在 adminRoutes 前，`src/index.ts` 已留註解）；任何日後 mount 在 adminRoutes 之後的 public route 都會被 Basic Auth gate 吃掉 | 收窄為 `use('/admin/*', ...)` 可解，但動 auth gate 需獨立評估＋測試（含既有 admin 測試全數回歸） | 待排程（2026-10-19 scheduler hub 輪發現） |
+| 28 | `runScheduledTick`（`tests/schedules.test.ts`）／`runScheduled`（`tests/cron.test.ts`）／`basic()`（`tests/admin.test.ts`） | 測試 helper 重複：兩個 scheduled-tick helper 同型（可抽 `tests/utils.ts`）；`btoa` Basic Auth header 構築亦與 admin 測試的 `basic()` 重複 | 抽共用 helper 進 `tests/utils.ts`；純測試碼去重，無 runtime 風險，可與下次測試輪順手做 | 待排程（2026-10-19 scheduler hub 輪發現） |
 
 ## 複本盤點確認非債項（避免重複調查）
 
