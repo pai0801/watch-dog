@@ -46,6 +46,18 @@ export interface AppBindings extends Env {
    * (operator machine) and .dev.vars (sealed) — see SECRETS.md.
    */
   CF_USAGE_API_TOKEN?: string;
+  /**
+   * Optional cross-monitor: bearer token for POSTing a heartbeat to
+   * ops-control every cron tick (independent CF account — watches the
+   * watch-dog). Missing → heartbeat silently skipped (10 §5.2 optional).
+   * Set via `wrangler secret put OPS_CONTROL_HOST_TOKEN`.
+   */
+  OPS_CONTROL_HOST_TOKEN?: string;
+  /**
+   * Non-secret cross-monitor endpoint ([vars] in wrangler.jsonc), e.g.
+   * https://ops-control.<subdomain>.workers.dev — no trailing slash.
+   */
+  OPS_CONTROL_HEARTBEAT_URL?: string;
 }
 
 /**

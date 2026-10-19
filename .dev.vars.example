@@ -15,3 +15,10 @@ CF_USAGE_API_TOKEN=change-me-local-usage-api-token
 # Settings live in the D1 settings table (configured via /admin) — the single
 # source of truth. The legacy SLACK_* env fallback was removed before the
 # first production deploy (TODO-REVIEW #7); there are no SLACK_* env vars.
+
+# --- Cross-monitor (optional) -----------------------------------------------
+# Bearer token for POSTing a heartbeat to ops-control every cron tick.
+# Leave EMPTY locally to skip the heartbeat (missing token → no-op —
+# local dev must not 401-spam the real ops-control).
+OPS_CONTROL_HOST_TOKEN=
+# Endpoint comes from wrangler.jsonc [vars] (OPS_CONTROL_HEARTBEAT_URL).

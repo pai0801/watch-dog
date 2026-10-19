@@ -20,8 +20,10 @@ worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD", "CF_USAGE_API_TOKEN"]
 # optional_worker = runtime 會讀、但缺了不影響核心功能的 secret（10 §5.2 try* accessor 模式；
 # topreview-hotel 先例：optional 不列入 required worker 合約）。
 # SLACK_API_TOKEN legacy fallback 已於首次部署前移除（TODO-REVIEW #7，2026-09-04）——
-# D1 settings 表為單一真相源，現無 optional worker secret。
-optional_worker = []
+# D1 settings 表為單一真相源。
+# OPS_CONTROL_HOST_TOKEN（2026-10-19）：跨服務互監——watch-dog 每分鐘向 ops-control
+#（獨立 CF 帳號）發 heartbeat；缺 token → 靜默跳過，互監失效不拖垮核心哨兵。
+optional_worker = ["OPS_CONTROL_HOST_TOKEN"]
 
 # legacy_names(10 §3 / guard §J)：命名 drift 允許清單。
 # ADMIN_ACCOUNT/ADMIN_PASSWORD（2026-09-05 起）：操作者指定的帳密「成對」命名——
@@ -54,6 +56,18 @@ authority = "B"
 provenance = "openssl rand -hex 32（值經 ~/.config/watch-dog/usage-api-token 本機檔散佈，agent 不經手明文）"
 shared_across = []
 last_rotated = "2026-09-12（首次設定）"
+owner = "@peter"
+
+[[secrets.meta]]
+# 跨服務共用（VENDOR=源服務 ops-control）：值 = ops-control 的 HOST_TOKEN（其 .env 域 A
+# 為真源——watch-dog 是消費方）。輪替時兩個 repo 的域 A/B 都要同步（ops-control 側改值
+# 會讓所有 host 心跳 401，屬破壞性輪替——先加新再拔舊不可行，需停機窗口或雙 token 機制）。
+name = "OPS_CONTROL_HOST_TOKEN"
+env = "all"
+authority = "B"
+provenance = "ops-control 的 host heartbeat Bearer token（源服務自產；watch-dog 2026-10-19 接入消費，值 file-sourced 自 ops-control .env）"
+shared_across = ["ops-control(HOST_TOKEN)"]
+last_rotated = "2026-10-19（watch-dog 首次接入；值同 ops-control 既有 HOST_TOKEN）"
 owner = "@peter"
 
 [[secrets.meta]]

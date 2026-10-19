@@ -2,7 +2,7 @@
 // Scheduler hub: signature pure functions, due-fire engine, registration API,
 // admin read-only view, cron wiring.
 
-import { SELF } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { network } from './network';
@@ -539,7 +539,7 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     let pending: Promise<unknown> = Promise.resolve();
     await worker.scheduled(
       { scheduledTime: Date.now(), cron: '* * * * *', noRetry: () => undefined } as never,
-      { DB } as never,
+      env as never,
       {
         waitUntil: (p: Promise<unknown>) => {
           pending = p;
@@ -550,6 +550,25 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     );
     await pending;
   }
+
+  it('sends a signed-in heartbeat on every scheduled tick (wiring)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { next_run_at: nowSec() + 3600 }); // keep engine quiet
+    const hearts: Array<{ auth: string; body: string }> = [];
+    network.use(
+      http.post('https://ops-control.mbti-with-m.workers.dev/api/heartbeat', async ({ request }) => {
+        hearts.push({ auth: request.headers.get('Authorization') ?? '', body: await request.text() });
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    await runScheduledTick();
+
+    expect(hearts).toHaveLength(1);
+    expect(hearts[0].auth).toBe('Bearer test-ops-host-token');
+    const payload = JSON.parse(hearts[0].body);
+    expect(payload.host).toBe('watch-dog');
+  });
 
   it('scheduled handler fires due schedules end-to-end', async () => {
     await seedProject({ id: 'svc', token: TOKEN });
@@ -586,4 +605,24 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     expect(stale?.status).toBe('dead');
     expect((await getSchedule(s.id))?.last_status).toBe('fail');
   });
+});
+
+// ============================================================================
+// Cross-monitor heartbeat（ops-control 互監）
+// ============================================================================
+
+import type { AppBindings } from '../src/types';
+import { sendOpsControlHeartbeat } from '../src/services/crossMonitor';
+
+describe('sendOpsControlHeartbeat (cross-monitor)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('no-ops (returns false, no fetch) when the token is absent', async () => {
+    // Empty env — no token/URL binding: optional wiring must no-op quietly.
+    expect(await sendOpsControlHeartbeat({} as AppBindings)).toBe(false);
+  });
+
 });

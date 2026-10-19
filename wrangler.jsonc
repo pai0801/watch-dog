@@ -28,6 +28,15 @@
 		"crons": ["*/1 * * * *"]
 	},
 
+	// Non-secret cross-monitor endpoint (domain C — 10-SECRETS-CONTRACT §1):
+	// watch-dog POSTs a heartbeat to ops-control (independent CF account)
+	// every cron tick. Token is the OPTIONAL secret OPS_CONTROL_HOST_TOKEN
+	// (absent → heartbeat silently skipped; deliberately NOT in
+	// secrets.required — cross-monitor must never gate the core sentinel).
+	"vars": {
+		"OPS_CONTROL_HEARTBEAT_URL": "https://ops-control.mbti-with-m.workers.dev"
+	},
+
 	"observability": {
 		"enabled": true
 	},

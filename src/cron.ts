@@ -5,6 +5,7 @@ import type { ScheduledEvent } from '@cloudflare/workers-types';
 import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
+import { sendOpsControlHeartbeat } from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
 
 export const scheduled = async (
@@ -128,6 +129,17 @@ export const scheduled = async (
         await runDueSchedules(env.DB, now, event.scheduledTime);
       } catch (e) {
         console.error('Scheduler hub error:', e);
+      }
+
+      // ===== Cross-monitor: heartbeat to ops-control (independent account) =====
+      // Same isolation class — own try/catch, after the fail-dead path. The
+      // dead can't send their own obituary: when watch-dog dies this heartbeat
+      // goes stale and ops-control alerts the operator (Slack + email-king).
+      // Optional wiring: missing token/URL → sendOpsControlHeartbeat no-ops.
+      try {
+        await sendOpsControlHeartbeat(env);
+      } catch (e) {
+        console.error('Cross-monitor heartbeat error:', e);
       }
     })()
   );
