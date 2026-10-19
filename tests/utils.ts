@@ -4,7 +4,7 @@
 import { env } from 'cloudflare:test';
 import { http, HttpResponse } from 'msw';
 import schemaSql from '../src/db.sql?raw';
-import type { Check, Env, Project } from '../src/types';
+import type { Check, Env, Project, Schedule } from '../src/types';
 import type { CfAccount } from '../src/services/cfUsage';
 import { network } from './network';
 
@@ -46,6 +46,7 @@ export async function resetDb(): Promise<void> {
     DB.prepare('DELETE FROM cf_accounts'),
     DB.prepare('DELETE FROM cf_usage_state'),
     DB.prepare('DELETE FROM cf_resource_names'),
+    DB.prepare('DELETE FROM schedules'),
   ]);
 }
 
@@ -171,6 +172,48 @@ export async function getProject(id: string): Promise<Project | null> {
 export async function countLogs(checkId: string): Promise<number> {
   const row = await DB.prepare('SELECT COUNT(*) AS n FROM logs WHERE check_id = ?').bind(checkId).first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+// ============================================================================
+// Scheduler hub fixtures
+// ============================================================================
+
+export async function seedSchedule(projectId: string, overrides: Partial<Schedule> = {}): Promise<Schedule> {
+  const s: Schedule = {
+    id: 101,
+    project_id: projectId,
+    name: 'tick',
+    callback_url: 'https://cb.test.local/tick',
+    interval_minutes: 60,
+    secret: 'sch-secret-0123456789abcdef0123456789abcdef',
+    retry_count: 0,
+    alert_after_failures: 0,
+    next_run_at: 0, // due immediately by default
+    last_run_at: null,
+    last_status: null,
+    consecutive_failures: 0,
+    paused: 0,
+    created_at: nowSec(),
+    ...overrides,
+  };
+  await DB.prepare(`
+    INSERT INTO schedules (
+      id, project_id, name, callback_url, interval_minutes, secret,
+      retry_count, alert_after_failures, next_run_at, last_run_at, last_status,
+      consecutive_failures, paused, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+    .bind(
+      s.id, s.project_id, s.name, s.callback_url, s.interval_minutes, s.secret,
+      s.retry_count, s.alert_after_failures, s.next_run_at, s.last_run_at, s.last_status,
+      s.consecutive_failures, s.paused, s.created_at
+    )
+    .run();
+  return s;
+}
+
+export async function getSchedule(id: number): Promise<Schedule | null> {
+  return DB.prepare('SELECT * FROM schedules WHERE id = ?').bind(id).first<Schedule>();
 }
 
 // ============================================================================

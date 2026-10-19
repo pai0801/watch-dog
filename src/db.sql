@@ -197,6 +197,50 @@ CREATE TABLE IF NOT EXISTS cf_resource_names (
 );
 
 -- ============================================================================
+-- Schedules Table (2026-10-19) — scheduler hub
+-- ============================================================================
+-- Dumb-ticker callback registry (docs/plans/2026-10-19-scheduler-hub-design.md):
+-- the hub wakes each target at its registered interval and does NOTHING else
+-- (precision/debounce/idempotency live in the target). next_run_at advances
+-- BEFORE firing → at-most-once per period — failing targets are never
+-- re-hammered. secret is D1 runtime data (cf_accounts.api_token precedent),
+-- returned exactly once at creation, never selected by admin queries.
+CREATE TABLE IF NOT EXISTS schedules (
+    -- Numeric id (also the signature domain — targets bind it into HMAC)
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Owning project (closed registration: operator-created, token-authed)
+    project_id TEXT NOT NULL,
+    -- Human label, unique within the project
+    name TEXT NOT NULL,
+    -- https:// callback URL the hub POSTs on every fire
+    callback_url TEXT NOT NULL,
+    -- Fire interval in minutes (1..10080, actual granularity = 1-min tick)
+    interval_minutes INTEGER NOT NULL,
+    -- Per-schedule HMAC secret (64 hex chars, generated at creation)
+    secret TEXT NOT NULL,
+    -- Optional immediate retry on failure (0 = off, 1 = one retry) —
+    -- registration choice, never hub policy
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    -- Slack warning when consecutive failures CROSSES this value
+    -- (0 = off). No auto-pause exists by design (operator decision).
+    alert_after_failures INTEGER NOT NULL DEFAULT 0,
+    -- Due-fire bookkeeping: fired when <= now
+    next_run_at INTEGER NOT NULL,
+    -- Unix ts of last fire attempt (null = never fired)
+    last_run_at INTEGER,
+    -- 'ok' (2xx ack) | 'fail' (null = never fired)
+    last_status TEXT,
+    -- Reset to 0 on any ack, incremented on each failure
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    -- Project-side maintenance mute (1 = skip, only the project sets it)
+    paused INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER DEFAULT (unixepoch()),
+    UNIQUE(project_id, name),
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(paused, next_run_at);
+
+-- ============================================================================
 -- Settings Table
 -- ============================================================================
 -- Application settings stored in database (replaces env vars)

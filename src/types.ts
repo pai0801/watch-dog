@@ -180,3 +180,61 @@ export interface ConfigPayload {
    *  listed in `checks` — and their logs — are deleted. 漏列即刪. */
   checks_replace?: boolean;
 }
+
+/**
+ * Schedule entity — a registered periodic callback (scheduler hub).
+ * Design: docs/plans/2026-10-19-scheduler-hub-design.md (dumb ticker).
+ */
+export interface Schedule {
+  /** Numeric id (signature domain — bound into the HMAC message) */
+  id: number;
+  /** Owning project id */
+  project_id: string;
+  /** Human label, unique within the project */
+  name: string;
+  /** https:// callback URL the hub POSTs on every fire */
+  callback_url: string;
+  /** Fire interval in minutes (1..10080; granularity = 1-min tick) */
+  interval_minutes: number;
+  /** Per-schedule HMAC secret — write-only after creation (never in reads) */
+  secret: string;
+  /** Optional immediate retry on failure (0 = off, 1 = one retry) */
+  retry_count: number;
+  /** Slack warning when consecutive failures crosses this (0 = off) */
+  alert_after_failures: number;
+  /** Unix ts of next due fire (fired when <= now) */
+  next_run_at: number;
+  /** Unix ts of last fire attempt (null = never) */
+  last_run_at: number | null;
+  /** 'ok' (2xx ack) | 'fail' (null = never) */
+  last_status: 'ok' | 'fail' | null;
+  /** Consecutive failures (reset on any ack) */
+  consecutive_failures: number;
+  /** Project-side maintenance mute (1 = skip) */
+  paused: number;
+  /** Unix ts of creation */
+  created_at: number;
+}
+
+/** Payload for POST /api/schedules */
+export interface ScheduleCreatePayload {
+  project_id: string;
+  name: string;
+  callback_url: string;
+  /** Default 60 */
+  interval_minutes?: number;
+  /** 0 | 1, default 0 */
+  retry_count?: number;
+  /** Default 0 = off */
+  alert_after_failures?: number;
+}
+
+/** Payload for PUT /api/schedules/:id (all fields optional) */
+export interface ScheduleUpdatePayload {
+  name?: string;
+  callback_url?: string;
+  interval_minutes?: number;
+  retry_count?: number;
+  alert_after_failures?: number;
+  paused?: 0 | 1;
+}
