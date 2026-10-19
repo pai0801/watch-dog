@@ -137,6 +137,26 @@ describe('runDueSchedules', () => {
     expect(row?.consecutive_failures).toBe(0);
   });
 
+  it('pins the fetch-THROWS catch branch: non-URL callback → fail, no throw (AC3)', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    // 'not a url' fails fetch at the URL-PARSE stage — a pure synchronous JS
+    // TypeError inside fireSchedule's try, landing in the catch { ok = false }
+    // branch (src/services/scheduler.ts). seedSchedule writes the DB directly,
+    // bypassing registration URL validation. Trigger chosen after experiment:
+    // ftp:// (valid URL, unsupported scheme) fails at the dispatch stage and
+    // LEAKS a workerd runtime-level unhandled rejection (same class as DNS
+    // failures, 2 errors/run, vitest exit 1); URL-parse errors are pure JS
+    // throws with zero runtime network involvement — rejection-free. This pins
+    // the thrown-rejection branch; the 500-path tests res.ok===false.
+    await seedSchedule('svc', { callback_url: 'not a url' });
+
+    await runEngine();
+
+    const row = await getSchedule(101);
+    expect(row?.last_status).toBe('fail');
+    expect(row?.consecutive_failures).toBe(1);
+  });
+
   it('alerts on crossing alert_after_failures (AC4)', async () => {
     await seedProject({ id: 'svc', token: 'tok-1234567890' });
     const slackBodies: string[] = [];
@@ -501,6 +521,11 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
   beforeEach(() => {
     hits = 0;
     useRestNameDefaults(); // keep any incidental REST fetch off the real network
+    // The dead-check path sends a critical Slack alert (setSlackSettings() is
+    // active, last_alert_at=0 gates nothing) — without this handler msw
+    // passthrough hits REAL slack.com with the test token every run
+    // (same hermeticity rule as tests/cron.test.ts beforeEach).
+    network.use(http.post('https://slack.com/api/chat.postMessage', () => HttpResponse.json({ ok: true })));
     network.use(
       http.post('https://cb.test.local/*', () => {
         hits++;
@@ -546,20 +571,19 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     // rejection in workerd (vitest exits 1 every run) even though the engine
     // catches the rejection correctly — verified 2026-10-19, 3+ consecutive
     // runs. This test therefore exercises the 5xx delivery-failure branch
-    // (res.ok === false), which is rejection-free and hits the same
-    // last_status='fail' outcome; the fetch-rejects catch-branch is covered
-    // at the engine level (runDueSchedules describe, retry test).
+    // (res.ok === false), rejection-free; the fetch-THROWS catch branch is
+    // pinned separately in the runDueSchedules describe (unsupported scheme).
     network.use(
       http.post('https://cb-fail.test.local/x', () =>
         HttpResponse.json({ error: 'callback down' }, { status: 500 })
       )
     );
-    await seedSchedule('svc', { callback_url: 'https://cb-fail.test.local/x' });
+    const s = await seedSchedule('svc', { callback_url: 'https://cb-fail.test.local/x' });
 
     await runScheduledTick();
 
     const stale = await DB.prepare("SELECT status FROM checks WHERE id = 'svc:stale'").first<{ status: string }>();
     expect(stale?.status).toBe('dead');
-    expect((await getSchedule(101))?.last_status).toBe('fail');
+    expect((await getSchedule(s.id))?.last_status).toBe('fail');
   });
 });
