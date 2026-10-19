@@ -403,7 +403,8 @@ curl -X POST https://watch-dog.helperp.workers.dev/api/schedules \
 Errors: `400` invalid JSON / missing required fields / invalid `project_id`,
 `name`, or `callback_url` / numeric field not a real number (`interval_minutes
 must be a number` etc. — `"60"` or `true` are rejected, fail-loud); `401`/`403`
-wrong or missing Bearer token; `409` duplicate `name` within the project.
+wrong or missing Bearer token; `404` unknown `project_id`; `409` duplicate
+`name` within the project.
 
 ### GET /api/schedules?project_id=
 

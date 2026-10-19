@@ -79,7 +79,7 @@ Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.
   失敗不重錘（等滿一個 interval）、retry_count=1 當場補一次、連敗跨越
   alert_after_failures 發 Slack warning、alert_after_failures=0 不發、
   batch cap 20（fire）與 5（alert）、fetch-throw catch 分支。
-- **註冊 API（/api/schedules）**：auth trio（無 token 401／錯 token 403／對 token 200）、
+- **註冊 API（/api/schedules）**：auth trio（無 token 401／錯 token 403／未知 project 404；成功路徑由建立測試覆蓋 200）、
   欄位驗證（name/callback_url/project_id）、numeric fail-loud（"60"/true → 400）、
   clamps（interval 1–10080、retry 0–1、alert 0–100）、ownership 404（跨 project）、
   PUT/DELETE、同 project name 衝突 409。

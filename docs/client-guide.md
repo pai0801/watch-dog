@@ -190,6 +190,7 @@ curl -s https://watch-dog.helperp.workers.dev/api/status/my-service | jq
 | config 回 200 但 check 沒出現 | 該條目無效被靜默跳過（type 不合法 / name 空值）——比對 `checks_registered` |
 | 沒收到 Slack 警報 | check 是否被 admin 暫停（monitor=0）？project 是否在維護模式？是否仍在 cooldown/靜默期？ |
 | 一直誤報 DEAD | `interval` 設得比實際發 pulse 週期短——interval 要 ≈ 你的發送週期、grace 吸收抖動 |
+
 ## 接收排程觸發（scheduler hub）
 
 watch-dog 到期會對你的 callback_url 發：
