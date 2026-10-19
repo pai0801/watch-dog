@@ -14,10 +14,9 @@
 // - Subrequest budget: <=20 fires x (1+retry) + <=5 alerts = <=45 external
 //   fetches per tick (Free plan cap: 50/invocation).
 
-// NOTE: D1Database / Schedule / sendSlackAlert imports and the subrequest-budget
-// constants (FIRE_BATCH_LIMIT=20, ALERT_BATCH_LIMIT=5, FETCH_TIMEOUT_MS=10_000)
-// are added by the due-fire engine task — dropped here because unused imports
-// fail tsc (noUnusedLocals) and ESLint (no-unused-vars) in this repo.
+import type { D1Database } from '@cloudflare/workers-types';
+import type { Schedule } from '../types';
+import { sendSlackAlert } from './alert';
 
 /** Hex-encode helper — single implementation shared by signing and
  *  secret generation (14-DESIGN-PRINCIPLES §2 rule 1: no second copy). */
@@ -54,4 +53,120 @@ export async function signScheduleHeader(
 ): Promise<string> {
   const v1 = await hmacSha256Hex(secret, `${firedAt}.${scheduleId}.${scheduledAt}`);
   return `t=${firedAt},v1=${v1}`;
+}
+
+// Subrequest budget (Free plan cap: 50/invocation):
+// <=20 fires x (1+retry) + <=5 alerts = <=45 external fetches per tick.
+const FIRE_BATCH_LIMIT = 20;
+const ALERT_BATCH_LIMIT = 5;
+const FETCH_TIMEOUT_MS = 10_000;
+
+/** One callback delivery. Returns true on 2xx ack. */
+async function fireSchedule(s: Schedule, scheduledAt: number): Promise<boolean> {
+  const firedAt = Math.floor(Date.now() / 1000);
+  const signature = await signScheduleHeader(s.secret, s.id, scheduledAt, firedAt);
+  const body = JSON.stringify({ schedule_id: s.id, scheduled_at: scheduledAt, fired_at: firedAt });
+
+  const attempt = (): Promise<Response> =>
+    fetch(s.callback_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Schedule-Signature': signature },
+      body,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+  let ok: boolean;
+  try {
+    const res = await attempt();
+    void res.body?.cancel();
+    ok = res.ok;
+  } catch {
+    ok = false;
+  }
+  // Optional single retry — registration choice, never hub policy.
+  if (!ok && s.retry_count === 1) {
+    try {
+      const res = await attempt();
+      void res.body?.cancel();
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+/**
+ * Fire every due schedule (paused = 0 AND next_run_at <= now), at most
+ * FIRE_BATCH_LIMIT per tick; leftovers fire on the next tick (late but
+ * not lost — ORDER BY next_run_at serves the most overdue first).
+ *
+ * Never throws (Promise.allSettled + per-alert error logging): a scheduler
+ * bug must not compromise the fail-dead path — cron.ts additionally wraps
+ * the call in its own try/catch (invariant ①, belt and suspenders).
+ */
+export async function runDueSchedules(
+  db: D1Database,
+  now: number,
+  scheduledTimeMs: number
+): Promise<void> {
+  const scheduledAt = Math.floor(scheduledTimeMs / 1000);
+  const due = await db
+    .prepare('SELECT * FROM schedules WHERE paused = 0 AND next_run_at <= ? ORDER BY next_run_at LIMIT ?')
+    .bind(now, FIRE_BATCH_LIMIT)
+    .all<Schedule>();
+  if (due.results.length === 0) return;
+
+  const alertTargets: Schedule[] = [];
+  await Promise.allSettled(
+    due.results.map(async (s) => {
+      // Advance BEFORE firing: at-most-once per period. If the isolate dies
+      // mid-fire the job waits a full period instead of being retried
+      // every minute.
+      await db
+        .prepare('UPDATE schedules SET next_run_at = ? WHERE id = ?')
+        .bind(now + s.interval_minutes * 60, s.id)
+        .run();
+
+      const ok = await fireSchedule(s, scheduledAt);
+      const failures = ok ? 0 : s.consecutive_failures + 1;
+      await db
+        .prepare('UPDATE schedules SET last_run_at = ?, last_status = ?, consecutive_failures = ? WHERE id = ?')
+        .bind(now, ok ? 'ok' : 'fail', failures, s.id)
+        .run();
+
+      // Crossing alert (alert_after_failures = 0 = off). Exact-equality
+      // fires once per crossing; flapping re-crossings re-alert by design
+      // (visible, never silent).
+      if (!ok && s.alert_after_failures > 0 && failures === s.alert_after_failures) {
+        alertTargets.push({ ...s, consecutive_failures: failures });
+      }
+    })
+  );
+
+  if (alertTargets.length === 0) return;
+  // Resolve project display names for the alert text (small table, one read).
+  const projects = await db.prepare('SELECT id, display_name FROM projects').all<{
+    id: string;
+    display_name: string;
+  }>();
+  const nameById = new Map(projects.results.map((p) => [p.id, p.display_name]));
+  for (const s of alertTargets.slice(0, ALERT_BATCH_LIMIT)) {
+    const result = await sendSlackAlert(db, {
+      checkId: `schedule:${s.id}`,
+      projectName: nameById.get(s.project_id) ?? s.project_id,
+      checkName: s.name,
+      level: 'warning',
+      title: '排程回呼連續失敗',
+      message: `${s.name} 已連續失敗 ${s.consecutive_failures} 次（門檻 ${s.alert_after_failures}），目標未回 2xx。`,
+      metadata: {
+        schedule_id: s.id,
+        interval_minutes: s.interval_minutes,
+        consecutive_failures: s.consecutive_failures,
+      },
+    });
+    if (!result.ok) {
+      console.error(`[scheduler] alert send failed for schedule ${s.id}: ${result.error}`);
+    }
+  }
 }
