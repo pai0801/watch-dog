@@ -1,8 +1,17 @@
 # Watch-Dog Sentinel
 
-A serverless, passive monitoring system ("Dead Man's Switch") for distributed microservices. Services report heartbeats to the Sentinel, and if they stop reporting, alerts are triggered.
+A serverless, passive monitoring system ("Dead Man's Switch") for distributed microservices — **plus** a cron-trigger hub that wakes your services on a schedule, without giving up a Cloudflare cron slot.
 
 > **Production**: `https://watch-dog.helperp.workers.dev` · public status feed: [`/api/status`](https://watch-dog.helperp.workers.dev/api/status)
+
+## 兩大功能
+
+| 功能 | 一句話 | 方向 |
+|---|---|---|
+| **① 服務監控**（Dead Man's Switch） | 你的服務定期上報 pulse；**pulse 停了 = 服務死了** → Slack（可選 Email）警報 | 你 → watch-dog |
+| **② Cron 觸發**（排程樞紐） | 你註冊一個回呼 URL；watch-dog 每分鐘 tick 到期就 POST **叫醒你**——不用自己的 CF cron slot | watch-dog → 你 |
+
+兩個功能共用同一個 project token、同一套註冊模型（project 由操作者建立，閉合註冊）。可以只用其中一個，也可以搭配使用（例：cron 觸發的任務跑完順手發 pulse，就是一個自帶死亡偵測的排程系統）。
 
 ## 客戶端接入（Client Onboarding）
 
@@ -74,26 +83,102 @@ curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email-test" \
 (改 form-encoded,WD-03 guard);403=漏 `X-Requested-With`;email-king 側稽核可查
 `email_logs WHERE consumer LIKE 'watch-dog%'`。
 
-### 5. （可選）註冊排程觸發——讓 watch-dog 定時叫醒你的服務
+### 5. （可選）註冊 Cron 觸發——讓 watch-dog 定時叫醒你的服務
 
-不需要自己的 Cloudflare cron slot：註冊一個固定間隔的 HTTPS 回呼，watch-dog 每分鐘
-tick 到期就 POST 叫醒你（帶 HMAC 簽名，防偽造/重放）。hub 是 dumb ticker——精度控制、
-debounce、冪等都在你端：要高精度就註冊 `interval_minutes: 1` 自己節流。
+不需要自己的 Cloudflare cron slot（Free 帳號只有 5 條，本哨兵帳號已滿）：註冊一個
+固定間隔的 HTTPS 回呼，watch-dog 每分鐘 tick 到期就 POST 叫醒你。
+
+**核心設計——dumb ticker**：hub 只負責「按你註冊的間隔叫醒」，不懂你的業務。
+精度控制、debounce、冪等都在你端。CF cron tick 本身有延遲（秒～分鐘級），
+與其讓 hub 假裝精準，不如目標端用真實時間自己算。
+
+#### 5a. 註冊
 
 ```bash
-# 註冊（secret 只回傳這一次，請立即保存）
+# 註冊（回應中的 secret 只出現這一次，立即保存）
 curl -X POST https://watch-dog.helperp.workers.dev/api/schedules \
-  -H "Authorization: Bearer <PROJECT_TOKEN>" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WATCHDOG_TOKEN" -H "Content-Type: application/json" \
   -d '{"project_id":"my-service","name":"hourly-job","callback_url":"https://my-service.example.com/hooks/tick","interval_minutes":60,"retry_count":1,"alert_after_failures":3}'
-# 列出 / 修改 / 刪除（?project_id= 一律必帶）
-curl -H "Authorization: Bearer <PROJECT_TOKEN>" "https://watch-dog.helperp.workers.dev/api/schedules?project_id=my-service"
+
+# 列出 / 修改 / 刪除（?project_id= 一律必帶；改 interval 不重算下次觸發時間，下週期生效）
+curl -H "Authorization: Bearer $WATCHDOG_TOKEN" "https://watch-dog.helperp.workers.dev/api/schedules?project_id=my-service"
 ```
 
-完整契約（驗簽範例、失敗語義、高精度 pattern）見 `docs/client-guide.md`。
+| 參數 | 說明 |
+|---|---|
+| `interval_minutes` | 觸發間隔，1–10080 分鐘（預設 60）。實際粒度 = 1 分鐘 tick |
+| `retry_count` | 0（預設）或 1——失敗當場補一次（註冊方自選，hub 不替你決定） |
+| `alert_after_failures` | 預設 0=off；設 N = 連敗跨越 N 時操作者收 Slack warning |
+| `paused` | 你自己的維護窗（PUT `{"paused":1}`），回復自助 |
+
+#### 5b. 接收——watch-dog 會 POST 什麼到你家
+
+- Method `POST`、`Content-Type: application/json`
+- Header `X-Schedule-Signature: t=<fired_at>,v1=<hex>`，其中
+  `v1 = HMAC-SHA256(secret, "<fired_at>.<schedule_id>.<scheduled_at>")`
+- Body `{"schedule_id": 7, "scheduled_at": 1760000000, "fired_at": 1760000001}`（unix 秒）
+
+回 `2xx` = ack；非 2xx 或 10 秒 timeout = 記一次失敗。**fire 前已推進下週期**——
+失敗的目標等滿一個 interval 才會再被叫（絕不重錘），也**永遠不會被自動暫停**。
+
+驗簽（防偽造/重放，務必做；完整版見 `docs/client-guide.md`）：
+
+```js
+async function verifySchedule(request, secret) {
+  const m = (request.headers.get('X-Schedule-Signature') ?? '').match(/^t=(\d+),v1=([0-9a-f]{64})$/);
+  if (!m) return false;
+  const [, t, v1] = m;
+  const { schedule_id, scheduled_at } = await request.json();
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${t}.${schedule_id}.${scheduled_at}`));
+  const hex = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Math.abs(Date.now() / 1000 - Number(t)) < 300 && hex === v1; // 5 分鐘新鮮度
+}
+```
+
+#### 5c. 高精度機制——註冊 1 分鐘觸發，自行 10 分鐘執行
+
+這是 dumb ticker 的標準用法：**要「每 10 分鐘跑一次」時，不要註冊
+`interval_minutes: 10`，而是註冊 `interval_minutes: 1`，你的 handler 自己記
+last-run 時間、距離上次滿 600 秒才真正執行事件。**
+
+```bash
+curl -X POST https://watch-dog.helperp.workers.dev/api/schedules \
+  -H "Authorization: Bearer $WATCHDOG_TOKEN" -H "Content-Type: application/json" \
+  -d '{"project_id":"my-service","name":"every-10min","callback_url":"https://my-service.example.com/hooks/tick","interval_minutes":1}'
+```
+
+```js
+// 目標端 handler（以 Workers/Durable Object 為例，last_run 持久化在你自己的儲存）
+async function handleTick(request, storage) {
+  if (!(await verifySchedule(request, SECRET))) return new Response('forbidden', { status: 403 });
+  const { fired_at } = await request.json();
+  const last = (await storage.get('last_event_at')) ?? 0;
+  if (fired_at - last < 600) return new Response('skipped');   // 未滿 10 分鐘——跳過
+  await storage.put('last_event_at', fired_at);
+  await runMyTenMinuteJob();                                     // 滿 10 分鐘——執行
+  return new Response('ok');
+}
+```
+
+為什麼這樣更好：
+
+- **漏 tick 自動補**——CF cron 偶爾延遲或漏一次，你只是晚一分鐘被叫醒，`fired_at - last >= 600`
+  照樣成立，事件照跑；註冊 10 分鐘的話，漏一次 tick = 整個事件晚 10 分鐘。
+- **drift 不累積**——用 body 的 `fired_at`（真實時間）算 elapsed，不是「被叫醒幾次 × 間隔」。
+- **同一個 handler 多種週期**——註冊一條 1 分鐘 tick，可以同時驅動 10 分鐘/30 分鐘/1 小時
+  多個事件（各記各的 last-run）。
+
+粗粒度任務（每小時報表、每天清理）直接註冊對應 interval 即可，不需要這個機制。
+
+完整契約（錯誤碼、失敗語義細節、Python 範例）見 `docs/client-guide.md`；
+操作者可隨時用 Basic Auth 看 `GET /admin/schedules` 唯讀總覽（secret 永不回傳）。
 
 ## Features
 
-- **Passive Monitoring**: Services report heartbeats via simple HTTP API
+- **Passive Monitoring**: Services report heartbeats via simple HTTP API — silence means dead
+- **Cron-Trigger Hub (Scheduler)**: registered projects get signed HTTPS callbacks on their interval — one cron slot serves every project; high precision via 1-minute tick + target-side self-throttling
 - **Smart Alerting**: Configurable thresholds and cooldowns prevent false alarms
 - **Declarative Check Lifecycle**: clients own their full check set via `PUT /api/config` — upsert, replace-set (`checks_replace`) and per-check `monitor` toggle, no admin UI needed
 - **Slack Integration**: Rich Block Kit alerts with severity-based channels
@@ -237,9 +322,9 @@ npm run deploy
 ## Architecture
 
 ```
-┌─────────────┐     pulse      ┌──────────────────┐
-│   Service   │ ──────────────> │  Watch-Dog API  │
-└─────────────┘                 └────────┬─────────┘
+┌─────────────┐  pulse (上報)   ┌──────────────────┐   callback (叫醒)   ┌─────────────┐
+│   Service   │ ──────────────> │  Watch-Dog API  │ ──────────────────> │   Service   │
+└─────────────┘                 └────────┬─────────┘   (HMAC 簽名 POST)  └─────────────┘
                                           │
                                           ▼
                                    ┌─────────────┐
@@ -249,10 +334,10 @@ npm run deploy
                         ┌─────────────────┴─────────────────┐
                         │                                   │
                         ▼                                   ▼
-                  ┌─────────┐                         ┌─────────┐
-                  │  Cron   │                         │  Slack  │
-                  │ (1/min) │                         │ Alerts  │
-                  └─────────┘                         └─────────┘
+                  ┌─────────────┐                     ┌─────────┐
+                  │  Cron (1/min)│                    │  Slack  │
+                  │ 掃逾期+觸發  │                     │ Alerts  │
+                  └─────────────┘                     └─────────┘
 ```
 
 ## Documentation
