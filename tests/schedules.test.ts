@@ -65,7 +65,7 @@ describe('runDueSchedules', () => {
 
   it('fires a due schedule with signed POST and advances next_run_at (AC2/AC3)', async () => {
     await seedProject({ id: 'svc', token: 'tok-1234567890' });
-    const s = await seedSchedule('svc');
+    const s = await seedSchedule('svc', { consecutive_failures: 3 }); // success resets the streak
     const before = nowSec();
 
     await runEngine();
@@ -96,8 +96,12 @@ describe('runDueSchedules', () => {
 
   it('records failure, does NOT re-hammer on the next tick (AC3)', async () => {
     await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    let calls = 0;
     network.use(
-      http.post('https://cb.test.local/*', () => new HttpResponse('boom', { status: 500 }))
+      http.post('https://cb.test.local/*', () => {
+        calls++;
+        return new HttpResponse('boom', { status: 500 });
+      })
     );
     const s = await seedSchedule('svc');
 
@@ -105,6 +109,7 @@ describe('runDueSchedules', () => {
     await runEngine(); // next minute — must not fire again
 
     expect(hits).toHaveLength(0); // 500 handler replaced the recorder above
+    expect(calls).toBe(1); // retry_count=0 → exactly one attempt across both ticks
     const row = await getSchedule(s.id);
     expect(row?.last_status).toBe('fail');
     expect(row?.consecutive_failures).toBe(1);
@@ -167,6 +172,30 @@ describe('runDueSchedules', () => {
     await runEngine();
 
     expect(slackHits).toBe(0);
+  });
+
+  it('caps Slack alerts at 5 per tick (AC4/AC6)', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    let slackHits = 0;
+    network.use(
+      http.post('https://cb.test.local/*', () => new HttpResponse('boom', { status: 500 })),
+      http.post('https://slack.com/api/chat.postMessage', () => {
+        slackHits++;
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    for (let i = 1; i <= 6; i++) {
+      await seedSchedule('svc', {
+        id: i,
+        name: `alert-${i}`,
+        callback_url: `https://cb.test.local/alert-${i}`,
+        alert_after_failures: 1, // every failure is a fresh crossing
+      });
+    }
+
+    await runEngine();
+
+    expect(slackHits).toBe(5); // ALERT_BATCH_LIMIT — the 6th is dropped this tick
   });
 
   it('caps fires at 20 per tick, most-overdue first (AC6)', async () => {

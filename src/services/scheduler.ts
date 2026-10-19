@@ -78,7 +78,7 @@ async function fireSchedule(s: Schedule, scheduledAt: number): Promise<boolean> 
   let ok: boolean;
   try {
     const res = await attempt();
-    void res.body?.cancel();
+    res.body?.cancel().catch(() => {});
     ok = res.ok;
   } catch {
     ok = false;
@@ -87,7 +87,7 @@ async function fireSchedule(s: Schedule, scheduledAt: number): Promise<boolean> 
   if (!ok && s.retry_count === 1) {
     try {
       const res = await attempt();
-      void res.body?.cancel();
+      res.body?.cancel().catch(() => {});
       ok = res.ok;
     } catch {
       ok = false;
@@ -101,9 +101,18 @@ async function fireSchedule(s: Schedule, scheduledAt: number): Promise<boolean> 
  * FIRE_BATCH_LIMIT per tick; leftovers fire on the next tick (late but
  * not lost — ORDER BY next_run_at serves the most overdue first).
  *
- * Never throws (Promise.allSettled + per-alert error logging): a scheduler
- * bug must not compromise the fail-dead path — cron.ts additionally wraps
- * the call in its own try/catch (invariant ①, belt and suspenders).
+ * Throw surface: per-fire failures are contained (Promise.allSettled +
+ * per-alert error logging), but the due SELECT, the projects SELECT and
+ * getAllSettings inside sendSlackAlert sit OUTSIDE that containment and can
+ * still throw (e.g. schema not yet applied post-deploy) — the cron.ts
+ * wrapper try/catch is the containment boundary (invariant ①), NOT
+ * belt-and-suspenders.
+ *
+ * Single-cron-instance assumption: at-most-once correctness relies on cron
+ * invocations not overlapping. A pathological tail (~20s fire phase + up to
+ * 5x10s sequential alert sends ≈ 70s) can exceed the 1-min interval;
+ * consequences are bounded — target-side idempotency, and scheduledAt in
+ * the signature makes replays detectable client-side.
  */
 export async function runDueSchedules(
   db: D1Database,
@@ -152,6 +161,7 @@ export async function runDueSchedules(
   }>();
   const nameById = new Map(projects.results.map((p) => [p.id, p.display_name]));
   for (const s of alertTargets.slice(0, ALERT_BATCH_LIMIT)) {
+    // Direct send — warning level never emails; deliberately not dispatchAlert.
     const result = await sendSlackAlert(db, {
       checkId: `schedule:${s.id}`,
       projectName: nameById.get(s.project_id) ?? s.project_id,
