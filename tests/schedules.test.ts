@@ -315,6 +315,21 @@ describe('POST /api/schedules (AC1)', () => {
     const alert = await mk('big-alert', { alert_after_failures: 500 });
     expect(alert.status).toBe(200);
     expect((await alert.json<{ schedule: { alert_after_failures: number } }>()).schedule.alert_after_failures).toBe(100);
+
+    // lower bound too — interval 0 would be due-every-tick if unclamped
+    const zero = await mk('zero-interval', { interval_minutes: 0 });
+    expect(zero.status).toBe(200);
+    expect((await zero.json<{ schedule: { interval_minutes: number } }>()).schedule.interval_minutes).toBe(1);
+  });
+
+  it('rejects a non-JSON body with 400', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const res = await SELF.fetch('http://localhost/api/schedules', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: 'not-json',
+    });
+    expect(res.status).toBe(400);
   });
 
   it('rejects non-numeric retry_count instead of silently enabling retry (400)', async () => {
@@ -387,6 +402,40 @@ describe('PUT /api/schedules/:id (AC1/AC4)', () => {
     // untouched — nothing was silently clamped to the fallback
     const row = await getSchedule(101);
     expect(row?.interval_minutes).toBe(60);
+  });
+
+  it('rejects paused: 2 with 400 (fail loud, no silent ignore)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { paused: 0 });
+
+    const res = await put('/api/schedules/101?project_id=svc', { paused: 2 }, auth);
+    expect(res.status).toBe(400);
+    const row = await getSchedule(101);
+    expect(row?.paused).toBe(0); // untouched
+  });
+
+  it('never carries the secret in GET :id or PUT responses', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc');
+
+    const got = await (await get('/api/schedules/101?project_id=svc', auth)).json<{
+      schedule: { secret?: string };
+    }>();
+    expect(got.schedule.secret).toBeUndefined();
+
+    const updated = await put('/api/schedules/101?project_id=svc', { paused: 1 }, auth);
+    expect(updated.status).toBe(200);
+    const body = await updated.json<{ schedule: { secret?: string } }>();
+    expect(body.schedule.secret).toBeUndefined();
+  });
+
+  it('rejects a non-numeric :id with 400', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc');
+
+    expect((await get('/api/schedules/abc?project_id=svc', auth)).status).toBe(400);
+    expect((await put('/api/schedules/abc?project_id=svc', { paused: 1 }, auth)).status).toBe(400);
+    expect((await del('/api/schedules/abc?project_id=svc', auth)).status).toBe(400);
   });
 });
 

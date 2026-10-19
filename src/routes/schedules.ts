@@ -9,7 +9,7 @@
 import { Hono, type Context } from 'hono';
 import type { AppBindings, Schedule, ScheduleCreatePayload, ScheduleUpdatePayload } from '../types';
 import { authenticateProject } from '../lib/auth';
-import { clampRange, isValidCheckName } from '../lib/validate';
+import { clampRange, isValidCheckName, isValidProjectId } from '../lib/validate';
 import { toHex } from '../services/scheduler';
 
 const schedules = new Hono<{ Bindings: AppBindings }>();
@@ -27,7 +27,12 @@ function generateSecret(): string {
   return toHex(bytes);
 }
 
-/** https-only, bounded length — the hub POSTs this URL on every fire. */
+/**
+ * https-only, bounded length — the hub POSTs this URL on every fire.
+ * SSRF containment is the closed registration model itself (operator-created
+ * projects, token-authed) inside a single-operator system; https-only is
+ * defense in depth, not the boundary.
+ */
 function isValidCallbackUrl(url: unknown): url is string {
   return typeof url === 'string' && url.startsWith('https://') && url.length <= 500;
 }
@@ -80,6 +85,14 @@ schedules.post('/api/schedules', async (c) => {
   if (!project_id || !name || !callback_url) {
     return c.json({ error: 'Missing required fields: project_id, name, callback_url' }, 400);
   }
+  // Same charset gate as /api/config: malformed ids should read as "invalid
+  // input" (400), not "unknown project" (404).
+  if (!isValidProjectId(project_id)) {
+    return c.json(
+      { error: 'Invalid project_id: use 1-63 chars of lowercase letters, digits or hyphens (must start alphanumeric)' },
+      400
+    );
+  }
   const auth = await authenticateProject(c, project_id);
   if (auth instanceof Response) return auth;
 
@@ -92,47 +105,66 @@ schedules.post('/api/schedules', async (c) => {
   if (!isValidCallbackUrl(callback_url)) {
     return c.json({ error: 'Invalid callback_url: must be an https:// URL of at most 500 chars' }, 400);
   }
-  // Non-numeric numerics would clamp to the fallback and silently register
-  // a wrong cadence — reject instead of guessing (fail loud).
-  if (body.interval_minutes !== undefined && !Number.isFinite(Number(body.interval_minutes))) {
+  // Numeric fields must be actual JSON numbers — Number() coerces "60" and
+  // true silently, and retry_count: true → 1 would silently enable retrying
+  // (fail loud on type, not just finiteness).
+  if (
+    body.interval_minutes !== undefined &&
+    (typeof body.interval_minutes !== 'number' || !Number.isFinite(body.interval_minutes))
+  ) {
     return c.json({ error: 'interval_minutes must be a number' }, 400);
   }
-  if (body.retry_count !== undefined && !Number.isFinite(Number(body.retry_count))) {
+  if (
+    body.retry_count !== undefined &&
+    (typeof body.retry_count !== 'number' || !Number.isFinite(body.retry_count))
+  ) {
     return c.json({ error: 'retry_count must be a number' }, 400);
   }
   if (
     body.alert_after_failures !== undefined &&
-    !Number.isFinite(Number(body.alert_after_failures))
+    (typeof body.alert_after_failures !== 'number' || !Number.isFinite(body.alert_after_failures))
   ) {
     return c.json({ error: 'alert_after_failures must be a number' }, 400);
-  }
-
-  const clash = await db
-    .prepare('SELECT id FROM schedules WHERE project_id = ? AND name = ?')
-    .bind(project_id, name)
-    .first();
-  if (clash) {
-    return c.json({ error: 'Schedule name already exists for this project' }, 409);
   }
 
   const interval = clampRange(body.interval_minutes ?? 60, 1, 10080, 60);
   const retry = clampRange(body.retry_count ?? 0, 0, 1, 0);
   const alertAfter = clampRange(body.alert_after_failures ?? 0, 0, 100, 0);
   const secret = generateSecret();
+  const nextRunAt = now + interval * 60;
 
   const result = await db
     .prepare(
       `INSERT INTO schedules (
         project_id, name, callback_url, interval_minutes, secret,
         retry_count, alert_after_failures, next_run_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, name) DO NOTHING`
     )
-    .bind(project_id, name, callback_url, interval, secret, retry, alertAfter, now + interval * 60)
+    .bind(project_id, name, callback_url, interval, secret, retry, alertAfter, nextRunAt)
     .run();
+  if (result.meta.changes === 0) {
+    return c.json({ error: 'Schedule name already exists for this project' }, 409);
+  }
   const id = result.meta.last_row_id;
 
-  const row = await db.prepare('SELECT * FROM schedules WHERE id = ?').bind(id).first<Schedule>();
-  return c.json({ success: true, schedule: row ? { ...publicSchedule(row), secret } : null });
+  // Input-built response — no re-SELECT, no null branch; the stored row is
+  // exactly the bound values plus engine bookkeeping defaults.
+  const schedule: Omit<Schedule, 'secret'> = {
+    id,
+    project_id,
+    name,
+    callback_url,
+    interval_minutes: interval,
+    retry_count: retry,
+    alert_after_failures: alertAfter,
+    next_run_at: nextRunAt,
+    last_run_at: null,
+    last_status: null,
+    consecutive_failures: 0,
+    paused: 0,
+    created_at: now,
+  };
+  return c.json({ success: true, schedule: { ...schedule, secret } });
 });
 
 /** GET /api/schedules?project_id=... — list the caller's own schedules. */
@@ -176,19 +208,30 @@ schedules.put('/api/schedules/:id', async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
-  // Fail loud on non-numeric numerics — silently clamping to the fallback
-  // would store a cadence the caller never asked for.
-  if (body.interval_minutes !== undefined && !Number.isFinite(Number(body.interval_minutes))) {
+  // Fail loud on wrong-typed or non-finite numerics — silently clamping to
+  // the fallback would store a cadence the caller never asked for.
+  if (
+    body.interval_minutes !== undefined &&
+    (typeof body.interval_minutes !== 'number' || !Number.isFinite(body.interval_minutes))
+  ) {
     return c.json({ error: 'interval_minutes must be a number' }, 400);
   }
-  if (body.retry_count !== undefined && !Number.isFinite(Number(body.retry_count))) {
+  if (
+    body.retry_count !== undefined &&
+    (typeof body.retry_count !== 'number' || !Number.isFinite(body.retry_count))
+  ) {
     return c.json({ error: 'retry_count must be a number' }, 400);
   }
   if (
     body.alert_after_failures !== undefined &&
-    !Number.isFinite(Number(body.alert_after_failures))
+    (typeof body.alert_after_failures !== 'number' || !Number.isFinite(body.alert_after_failures))
   ) {
     return c.json({ error: 'alert_after_failures must be a number' }, 400);
+  }
+  // paused must be 0 or 1 when present — silent-ignore would leave the
+  // caller believing a mute took effect when it did not.
+  if (body.paused !== undefined && body.paused !== 0 && body.paused !== 1) {
+    return c.json({ error: 'Invalid paused: must be 0 or 1' }, 400);
   }
 
   const name = body.name === undefined ? null : isValidCheckName(body.name) ? body.name : null;
@@ -215,7 +258,7 @@ schedules.put('/api/schedules/:id', async (c) => {
   const retry = body.retry_count === undefined ? null : clampRange(body.retry_count, 0, 1, 0);
   const alertAfter =
     body.alert_after_failures === undefined ? null : clampRange(body.alert_after_failures, 0, 100, 0);
-  const paused = body.paused === 0 || body.paused === 1 ? body.paused : null;
+  const paused = body.paused === undefined ? null : body.paused;
 
   await db
     .prepare(
