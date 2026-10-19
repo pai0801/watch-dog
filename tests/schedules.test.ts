@@ -556,7 +556,7 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     await seedSchedule('svc', { next_run_at: nowSec() + 3600 }); // keep engine quiet
     const hearts: Array<{ auth: string; body: string }> = [];
     network.use(
-      http.post('https://ops-control.mbti-with-m.workers.dev/api/heartbeat', async ({ request }) => {
+      http.post('https://ops-control.travelplus.cc/api/heartbeat', async ({ request }) => {
         hearts.push({ auth: request.headers.get('Authorization') ?? '', body: await request.text() });
         return HttpResponse.json({ ok: true });
       })

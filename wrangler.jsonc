@@ -30,11 +30,12 @@
 
 	// Non-secret cross-monitor endpoint (domain C — 10-SECRETS-CONTRACT §1):
 	// watch-dog POSTs a heartbeat to ops-control (independent CF account)
-	// every cron tick. Token is the OPTIONAL secret OPS_CONTROL_HOST_TOKEN
+	// every cron tick — via the CUSTOM DOMAIN (Worker→*.workers.dev fetch is
+	// platform-blocked with error 1042, custom domain is the only blessed path). Token is the OPTIONAL secret OPS_CONTROL_HOST_TOKEN
 	// (absent → heartbeat silently skipped; deliberately NOT in
 	// secrets.required — cross-monitor must never gate the core sentinel).
 	"vars": {
-		"OPS_CONTROL_HEARTBEAT_URL": "https://ops-control.mbti-with-m.workers.dev"
+		"OPS_CONTROL_HEARTBEAT_URL": "https://ops-control.travelplus.cc"
 	},
 
 	"observability": {
