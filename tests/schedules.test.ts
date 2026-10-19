@@ -452,3 +452,26 @@ describe('DELETE /api/schedules/:id (AC1)', () => {
     expect(await getSchedule(101)).toBeNull();
   });
 });
+
+describe('GET /admin/schedules (AC5: read-only, secret never leaves)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  it('requires Basic Auth and returns every schedule WITHOUT the secret', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc', { secret: 'top-secret-value-never-echo' });
+
+    expect((await get('/admin/schedules')).status).toBe(401);
+
+    const basic = 'Basic ' + btoa('test-admin:test-admin-token');
+    const res = await get('/admin/schedules', { Authorization: basic });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain('top-secret-value-never-echo');
+    const data = JSON.parse(text) as { schedules: Array<{ id: number; project_id: string }>; count: number };
+    expect(data.count).toBe(1);
+    expect(data.schedules[0].project_id).toBe('svc');
+  });
+});

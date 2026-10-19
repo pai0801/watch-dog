@@ -4,7 +4,7 @@
 
 import { Hono, type MiddlewareHandler } from 'hono';
 import { html, raw } from 'hono/html';
-import type { AppBindings, Check, Project } from '../types';
+import type { AppBindings, Check, Project, Schedule } from '../types';
 import { adminAuth } from '../middleware/adminAuth';
 import { escapeLikePattern, isValidAccountId, isValidProjectId } from '../lib/validate';
 import { getAllSettings, updateEmailSettings, updateSlackSettings, updateSetting } from '../services/settings';
@@ -1148,6 +1148,23 @@ admin.post('/admin/cf-usage/accounts/:accountId/pages-aliases', rejectJsonBody, 
     console.error('Pages alias save error:', error);
     return c.html(cfRedFragment('Error saving Pages alias. Please try again.'));
   }
+});
+
+/**
+ * GET /admin/schedules — scheduler-hub overview. READ-ONLY by design
+ * (operator decision 2026-10-19): there is intentionally no admin write
+ * path for schedules. The secret column is never selected.
+ */
+admin.get('/admin/schedules', async (c) => {
+  const rows = await c.env.DB
+    .prepare(
+      `SELECT id, project_id, name, callback_url, interval_minutes, retry_count,
+              alert_after_failures, next_run_at, last_run_at, last_status,
+              consecutive_failures, paused, created_at
+       FROM schedules ORDER BY project_id, name`
+    )
+    .all<Omit<Schedule, 'secret'>>();
+  return c.json({ schedules: rows.results, count: rows.results.length });
 });
 
 export default admin;
