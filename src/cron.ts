@@ -5,6 +5,7 @@ import type { ScheduledEvent } from '@cloudflare/workers-types';
 import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
+import { runDueSchedules } from './services/scheduler';
 
 export const scheduled = async (
   event: ScheduledEvent,
@@ -115,6 +116,18 @@ export const scheduled = async (
         } catch (e) {
           console.error('CF usage poll error:', e);
         }
+      }
+
+      // ===== Scheduler hub: fire due schedule callbacks =====
+      // Same isolation class as the usage poll above — its own try/catch,
+      // deliberately AFTER the fail-dead path (invariant ①: a scheduler
+      // bug must never compromise dead-service detection). runDueSchedules
+      // contains per-fire failures but its due/projects SELECTs can throw —
+      // THIS wrapper is the containment boundary, not belt-and-suspenders.
+      try {
+        await runDueSchedules(env.DB, now, event.scheduledTime);
+      } catch (e) {
+        console.error('Scheduler hub error:', e);
       }
     })()
   );

@@ -7,7 +7,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { network } from './network';
 import { hmacSha256Hex, runDueSchedules, signScheduleHeader } from '../src/services/scheduler';
-import { DB, getSchedule, resetDb, seedProject, seedSchedule, setSlackSettings } from './utils';
+import { DB, getSchedule, resetDb, seedCheck, seedProject, seedSchedule, setSlackSettings, useRestNameDefaults } from './utils';
+import worker from '../src/index';
 
 describe('signScheduleHeader (pure)', () => {
   it('produces t=...,v1=<64 lowercase hex> and is deterministic', async () => {
@@ -462,6 +463,11 @@ describe('GET /admin/schedules (AC5: read-only, secret never leaves)', () => {
   it('requires Basic Auth and returns every schedule WITHOUT the secret', async () => {
     await seedProject({ id: 'svc', token: TOKEN });
     await seedSchedule('svc', { secret: 'top-secret-value-never-echo' });
+    // Second project + paused schedule: exercises ORDER BY (project_id, name)
+    // and that paused schedules are still visible to the admin view.
+    await seedProject({ id: 'aaa', token: 'aaa-token-1234567890' });
+    await seedSchedule('aaa', { id: 102, name: 'zzz' });
+    await seedSchedule('svc', { id: 103, name: 'paused-one', paused: 1 });
 
     expect((await get('/admin/schedules')).status).toBe(401);
 
@@ -470,8 +476,90 @@ describe('GET /admin/schedules (AC5: read-only, secret never leaves)', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).not.toContain('top-secret-value-never-echo');
-    const data = JSON.parse(text) as { schedules: Array<{ id: number; project_id: string }>; count: number };
-    expect(data.count).toBe(1);
-    expect(data.schedules[0].project_id).toBe('svc');
+    const data = JSON.parse(text) as {
+      schedules: Array<{ id: number; project_id: string; name: string }>;
+      count: number;
+    };
+    expect(data.count).toBe(3);
+    expect(data.schedules.map((x) => `${x.project_id}/${x.name}`)).toEqual([
+      'aaa/zzz',
+      'svc/paused-one',
+      'svc/tick',
+    ]);
+    expect(data.schedules[0]).not.toHaveProperty('secret');
+  });
+});
+
+describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
+  beforeEach(async () => {
+    await resetDb();
+    await setSlackSettings();
+  });
+
+  let hits: number;
+
+  beforeEach(() => {
+    hits = 0;
+    useRestNameDefaults(); // keep any incidental REST fetch off the real network
+    network.use(
+      http.post('https://cb.test.local/*', () => {
+        hits++;
+        return HttpResponse.json({ ok: true });
+      })
+    );
+  });
+
+  /** Dispatch the worker's scheduled handler the way the cron trigger would. */
+  async function runScheduledTick(): Promise<void> {
+    let pending: Promise<unknown> = Promise.resolve();
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '* * * * *', noRetry: () => undefined } as never,
+      { DB } as never,
+      {
+        waitUntil: (p: Promise<unknown>) => {
+          pending = p;
+        },
+        passThroughOnException: () => undefined,
+        props: {},
+      } as never
+    );
+    await pending;
+  }
+
+  it('scheduled handler fires due schedules end-to-end', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const s = await seedSchedule('svc');
+
+    await runScheduledTick();
+
+    expect(hits).toBe(1);
+    expect((await getSchedule(s.id))?.last_status).toBe('ok');
+  });
+
+  it('scheduler failure does not break dead-check detection (invariant ①)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedCheck('svc', { id: 'svc:stale', name: 'stale', last_seen: nowSec() - 3600 });
+    // Failing callback: HTTP 500 (delivery failure → engine records 'fail').
+    // NOTE: the originally specified failure mode was a real DNS failure (msw
+    // passthrough to an unresolvable host). Both that AND msw's
+    // HttpResponse.error() deterministically leak a runtime-level unhandled
+    // rejection in workerd (vitest exits 1 every run) even though the engine
+    // catches the rejection correctly — verified 2026-10-19, 3+ consecutive
+    // runs. This test therefore exercises the 5xx delivery-failure branch
+    // (res.ok === false), which is rejection-free and hits the same
+    // last_status='fail' outcome; the fetch-rejects catch-branch is covered
+    // at the engine level (runDueSchedules describe, retry test).
+    network.use(
+      http.post('https://cb-fail.test.local/x', () =>
+        HttpResponse.json({ error: 'callback down' }, { status: 500 })
+      )
+    );
+    await seedSchedule('svc', { callback_url: 'https://cb-fail.test.local/x' });
+
+    await runScheduledTick();
+
+    const stale = await DB.prepare("SELECT status FROM checks WHERE id = 'svc:stale'").first<{ status: string }>();
+    expect(stale?.status).toBe('dead');
+    expect((await getSchedule(101))?.last_status).toBe('fail');
   });
 });
