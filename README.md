@@ -74,6 +74,23 @@ curl -X POST "https://watch-dog.helperp.workers.dev/admin/settings/email-test" \
 (改 form-encoded,WD-03 guard);403=漏 `X-Requested-With`;email-king 側稽核可查
 `email_logs WHERE consumer LIKE 'watch-dog%'`。
 
+### 5. （可選）註冊排程觸發——讓 watch-dog 定時叫醒你的服務
+
+不需要自己的 Cloudflare cron slot：註冊一個固定間隔的 HTTPS 回呼，watch-dog 每分鐘
+tick 到期就 POST 叫醒你（帶 HMAC 簽名，防偽造/重放）。hub 是 dumb ticker——精度控制、
+debounce、冪等都在你端：要高精度就註冊 `interval_minutes: 1` 自己節流。
+
+```bash
+# 註冊（secret 只回傳這一次，請立即保存）
+curl -X POST https://watch-dog.helperp.workers.dev/api/schedules \
+  -H "Authorization: Bearer <PROJECT_TOKEN>" -H "Content-Type: application/json" \
+  -d '{"project_id":"my-service","name":"hourly-job","callback_url":"https://my-service.example.com/hooks/tick","interval_minutes":60,"retry_count":1,"alert_after_failures":3}'
+# 列出 / 修改 / 刪除（?project_id= 一律必帶）
+curl -H "Authorization: Bearer <PROJECT_TOKEN>" "https://watch-dog.helperp.workers.dev/api/schedules?project_id=my-service"
+```
+
+完整契約（驗簽範例、失敗語義、高精度 pattern）見 `docs/client-guide.md`。
+
 ## Features
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API
@@ -159,8 +176,12 @@ scripts/enroll.sh my-service 我的服務
 | `/api/status` | GET | public | Get all statuses |
 | `/api/status/:projectId` | GET | public | Get project status |
 | `/api/maintenance/:projectId` | POST | project token | Toggle maintenance mode |
+| `/api/schedules` | POST | project token | 註冊排程觸發（secret 僅回傳一次） |
+| `/api/schedules?project_id=` | GET | project token | 列出自己的排程（不含 secret） |
+| `/api/schedules/:id?project_id=` | GET / PUT / DELETE | project token | 查詢 / 修改 / 刪除自己的排程 |
 | `/api/cf-usage` | GET | Bearer `CF_USAGE_API_TOKEN` | 唯讀 CF 用量查詢（見下節） |
 | `/admin` | GET | Basic Auth (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`) | Admin dashboard |
+| `/admin/schedules` | GET | Basic Auth | 排程樞紐唯讀總覽（secret 永不回傳） |
 
 ### CF 用量 API（供其它專案的 Claude Code／自動化使用）
 

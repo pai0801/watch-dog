@@ -341,3 +341,127 @@ Alert levels:
 - **Critical**: Service is DEAD (no pulse received)
 - **Warning**: Service reported ERROR status
 - **Recovery**: Service recovered from DEAD/ERROR state
+
+---
+
+## Scheduler Hub API
+
+The scheduler hub is a **dumb ticker**: projects register fixed-interval HTTPS
+callbacks; every minute the cron advances due schedules and POSTs the callback
+with an HMAC signature. There is no admin write path — projects self-serve
+with their existing project token (Bearer). Full client-facing contract and a
+copy-paste verify recipe: [client-guide.md](client-guide.md#接收排程觸發scheduler-hub).
+
+### POST /api/schedules
+
+Register a schedule. The per-schedule secret (64 hex chars) is returned
+**EXACTLY ONCE**, in this response — it is never selectable again by any
+endpoint (admin included).
+
+```bash
+curl -X POST https://watch-dog.helperp.workers.dev/api/schedules \
+  -H "Authorization: Bearer <PROJECT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"my-service","name":"hourly-job","callback_url":"https://my-service.example.com/hooks/tick","interval_minutes":60,"retry_count":1,"alert_after_failures":3}'
+```
+
+**Request fields:**
+
+| Field | Type | Required | Clamp / Default | Notes |
+|-------|------|----------|-----------------|-------|
+| `project_id` | string | yes | — | 1-63 chars, lowercase letters/digits/hyphens, alphanumeric first; must exist and match the Bearer token |
+| `name` | string | yes | — | 1-64 chars `[a-zA-Z0-9_-]`, alphanumeric first; unique per project (duplicate → 409) |
+| `callback_url` | string | yes | — | `https://` only, ≤500 chars |
+| `interval_minutes` | number | no | 1–10080, default 60 | |
+| `retry_count` | number | no | 0–1, default 0 | 1 = one immediate retry after a failed fire |
+| `alert_after_failures` | number | no | 0–100, default 0 | 0 = alerting off |
+
+**Response** `201`-shaped `200` with the schedule incl. `secret`:
+
+```json
+{
+  "success": true,
+  "schedule": {
+    "id": 7,
+    "project_id": "my-service",
+    "name": "hourly-job",
+    "callback_url": "https://my-service.example.com/hooks/tick",
+    "interval_minutes": 60,
+    "retry_count": 1,
+    "alert_after_failures": 3,
+    "next_run_at": 1760000400,
+    "last_run_at": null,
+    "last_status": null,
+    "consecutive_failures": 0,
+    "paused": 0,
+    "created_at": 1760000000,
+    "secret": "<64 hex chars — shown only here>"
+  }
+}
+```
+
+Errors: `400` invalid JSON / missing required fields / invalid `project_id`,
+`name`, or `callback_url` / numeric field not a real number (`interval_minutes
+must be a number` etc. — `"60"` or `true` are rejected, fail-loud); `401`/`403`
+wrong or missing Bearer token; `409` duplicate `name` within the project.
+
+### GET /api/schedules?project_id=
+
+List the caller's own schedules, ordered by name. **No secrets** in the
+response. `401`/`403` on auth failure, `400` if `project_id` is missing.
+
+```json
+{ "schedules": [ { "id": 7, "project_id": "my-service", "name": "hourly-job", "...": "..." } ] }
+```
+
+### GET / PUT / DELETE /api/schedules/:id?project_id=
+
+Single-schedule access. `project_id` query param is always required; the
+project is authenticated and must own the row — a foreign project's schedule
+returns **404** (no existence oracle across projects). `400` invalid id or
+missing `project_id`.
+
+- `GET` → `{ "schedule": { ...public fields, no secret } }`
+- `PUT` → partial update; returns `{ "success": true, "schedule": {...} }`
+- `DELETE` → `{ "success": true, "deleted": 7 }`
+
+**PUT fields** (all optional, same clamps as registration): `name`,
+`callback_url`, `interval_minutes`, `retry_count`, `alert_after_failures`
+(numerics fail-loud on non-numbers as above), `paused` — must be `0` or `1`,
+any other value is a `400` (fail-loud, never silently ignored).
+
+**Semantic notes (frozen behavior):**
+
+1. **The secret is returned exactly once, at creation.** No endpoint — list,
+   get, PUT response, or admin overview — ever returns it again. Lose it and
+   the only recovery is delete + re-register (new secret).
+2. **PUT changing `interval_minutes` does NOT recompute `next_run_at`.** The
+   new cadence applies from the next advance; the currently pending fire keeps
+   the old timing.
+3. **`next_run_at` advances BEFORE firing** — at-most-once per period. A
+   failing target is never re-hammered within its interval (it waits one full
+   interval before the next attempt; `retry_count: 1` adds a single immediate
+   retry reusing the same signature timestamp, so client freshness windows
+   should tolerate ≥ ~60s). Consecutive failures crossing
+   `alert_after_failures` (N > 0) send a Slack warning to the operator;
+   success resets the counter. **There is no auto-pause** — `paused` is
+   project-self-set only.
+
+### Fire contract (hub → your callback)
+
+Every due schedule receives:
+
+- **Method/headers**: `POST`, `Content-Type: application/json`, plus
+  `X-Schedule-Signature: t=<fired_at>,v1=<hex>` where
+  `v1 = HMAC-SHA256(secret, "<fired_at>.<schedule_id>.<scheduled_at>")`
+- **Body** (unix seconds): `{"schedule_id": 7, "scheduled_at": 1760000000, "fired_at": 1760000001}`
+- **Ack**: any `2xx` response. Anything else, or a **10s timeout**, records
+  one failure.
+
+Verify the signature before trusting the body — see the copy-paste recipe in
+[client-guide.md](client-guide.md#接收排程觸發scheduler-hub).
+
+### GET /admin/schedules
+
+Read-only overview for the operator (Basic Auth). Secret is never selected.
+No admin write path exists by design — projects manage their own schedules.

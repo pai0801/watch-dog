@@ -5,6 +5,11 @@
 
 ## Entries
 
+## 2026-10-19 — Scheduler Hub（排程觸發樞紐）
+- 變更：新增 dumb-ticker 排程樞紐（docs/plans/2026-10-19-scheduler-hub-design.md）。cron */5→*/1（slot 計條數非頻率——2026-09-23 註解的「放寬讓 slot」其實是誤判，getkm ef457dc42d3a）。
+- 不變式①防護：scheduler 在 scheduled handler 獨立 try/catch、位於 fail-dead 之後；測試雙釘（正常 fire + 回呼失敗不破壞偵測）。測試環境發現：workerd 下 dispatch-stage 失敗（DNS/unsupported scheme）會漏 runtime unhandled rejection、parse-stage 失敗不會（dev-brain cbbfde62cf5c / 3f87eb33ddb0）。
+- tier: major；BUILD-PLAN：docs/plans/2026-10-19-scheduler-hub-plan.md。
+
 ### [2026-09-12] 存量債清理輪 #20–#26——timingSafeEqual 位元組長度、label 唯一性、admin 文件、dev-tunnel kill_port、final-review 三 Nit
 
 **目標**：清償 TODO-REVIEW #20–#26（全輪 final review APPROVED 後操作者指示 go 的存量債批次；#20–#22 為 Task 8/9 quality review 登記、#23 為 Task 10 實踩、#24–#26 為 final review Nit）。

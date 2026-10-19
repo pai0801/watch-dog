@@ -3,6 +3,8 @@
 
 被動式 dead-service 監控哨兵：受監服務每分鐘上報 pulse，**pulse 停了 = 服務死了**（非主動探活）；Cron 每分鐘掃描逾期 → Slack 警報。Hono 4 單一 Worker + D1（原生 prepared statements，無 ORM）。
 
+2026-10-19 起另兼任**排程觸發樞紐（scheduler hub）**：註冊制 dumb ticker（`src/services/scheduler.ts`），獨立 try/catch 隔離於 fail-dead 路徑——不變式①語義不變。
+
 ## 專案不變式（改程式碼前必讀）
 
 1. **fail-dead 語義**：偵測靠「收不到 pulse」——任何改動 [NEVER] 把語義換成主動健康檢查。
