@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     UNIQUE(project_id, name),
     FOREIGN KEY(project_id) REFERENCES projects(id)
 );
+-- covers the cron due-query WHERE paused = 0 AND next_run_at <= ? ORDER BY next_run_at (equality prefix + range, ORDER BY via index order)
 CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(paused, next_run_at);
 
 -- ============================================================================

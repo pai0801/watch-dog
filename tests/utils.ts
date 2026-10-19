@@ -41,12 +41,12 @@ export async function resetDb(): Promise<void> {
   await DB.batch([
     DB.prepare('DELETE FROM logs'),
     DB.prepare('DELETE FROM checks'),
+    DB.prepare('DELETE FROM schedules'),
     DB.prepare('DELETE FROM projects'),
     DB.prepare('DELETE FROM settings'),
     DB.prepare('DELETE FROM cf_accounts'),
     DB.prepare('DELETE FROM cf_usage_state'),
     DB.prepare('DELETE FROM cf_resource_names'),
-    DB.prepare('DELETE FROM schedules'),
   ]);
 }
 
