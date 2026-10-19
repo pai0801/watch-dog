@@ -31,5 +31,9 @@ describe('signScheduleHeader (pure)', () => {
     // Same recipe the client-guide verification example implements.
     const hex = await hmacSha256Hex('k', '2000.7.1000');
     expect(hex).toMatch(/^[0-9a-f]{64}$/);
+    // RFC 4231 Test Case 2 — pins the whole crypto path (algo + encoder).
+    expect(await hmacSha256Hex('Jefe', 'what do ya want for nothing?')).toBe(
+      '5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843'
+    );
   });
 });
