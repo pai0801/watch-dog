@@ -71,7 +71,8 @@ it("A: no secret key leaks into wrangler vars or source", () => {
 });
 
 // ---------- §B — SQL 必須靜態字面值 + .bind() 參數化（watch-dog 適應版） ----------
-/** §B 掃描核心：每個 `.prepare(` 的引數區（到第一個 `.bind(` 或 400 字元）：
+/** §B 掃描核心：每個 `.prepare(` 的引數區（到第一個 `.bind(` / 鏈終點 `.all(` `.first(`
+ *  `.run(` `.raw(` / 或 400 字元）：
  *  ① 主規則——引數首個非空白字元必須是 SQL 字面值引號（' " `）。
  *    非字面值開頭 = 變數/運算式 → 未參數化的動態 SQL（前導變數串接、join()、prebuilt var 全被涵蓋）。
  *  ② 反向樣式——區內出現 `${`（模板內插）或「引號貼鄰串接」（`'...' +` / `+ '...'`，雙向；
@@ -81,8 +82,17 @@ function scanPrepareArg(content: string): Array<{ line: number; snippet: string;
   let idx = 0;
   while ((idx = content.indexOf(".prepare(", idx)) !== -1) {
     const start = idx + ".prepare(".length;
-    const bindAt = content.indexOf(".bind(", start);
-    const region = content.slice(start, Math.min(bindAt === -1 ? start + 400 : bindAt, start + 400));
+    // 語句邊界 = 引數區後的第一個鏈點（.bind 或 .all/.first/.run/.raw）——SQL 字面值
+    // 必然終止於鏈點之前，收在鏈點不會放過字面值內的違規；無鏈點時退回 400 字元。
+    // （2026-10-19 修：scheduler.ts 的無參數 SELECT 從前只在「下一個 .bind」或 +400
+    // 收邊，後者會掃過界吃進不相鄰的 template literal → 誤報「模板內插」。）
+    const terminators = ['.bind(', '.all(', '.first(', '.run(', '.raw(', '.all<', '.first<'];
+    let end = start + 400;
+    for (const t of terminators) {
+      const at = content.indexOf(t, start);
+      if (at !== -1 && at < end) end = at;
+    }
+    const region = content.slice(start, end);
     // 主規則：跳過空白/換行後，首字元必須是引號（多行 .prepare(\n  `SELECT...` 合法）
     const firstChar = region.replace(/^[\s]+/, "")[0];
     const kind =
