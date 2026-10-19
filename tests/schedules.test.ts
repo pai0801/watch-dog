@@ -298,6 +298,37 @@ describe('POST /api/schedules (AC1)', () => {
     );
     expect(res.status).toBe(409);
   });
+
+  it('clamps interval/retry/alert to their upper bounds', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const mk = (name: string, extra: Record<string, unknown>) =>
+      post('/api/schedules', { project_id: 'svc', name, callback_url: 'https://cb.test.local/x', ...extra }, auth);
+
+    const interval = await mk('big-interval', { interval_minutes: 99999 });
+    expect(interval.status).toBe(200);
+    expect((await interval.json<{ schedule: { interval_minutes: number } }>()).schedule.interval_minutes).toBe(10080);
+
+    const retry = await mk('big-retry', { retry_count: 5 });
+    expect(retry.status).toBe(200);
+    expect((await retry.json<{ schedule: { retry_count: number } }>()).schedule.retry_count).toBe(1);
+
+    const alert = await mk('big-alert', { alert_after_failures: 500 });
+    expect(alert.status).toBe(200);
+    expect((await alert.json<{ schedule: { alert_after_failures: number } }>()).schedule.alert_after_failures).toBe(100);
+  });
+
+  it('rejects non-numeric retry_count instead of silently enabling retry (400)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    const res = await post(
+      '/api/schedules',
+      { project_id: 'svc', name: 'tick', callback_url: 'https://cb.test.local/x', retry_count: 'x' },
+      auth
+    );
+    expect(res.status).toBe(400);
+    // fail loud → nothing stored (a silent fallback of 1 would enable retrying)
+    const list = await (await get('/api/schedules?project_id=svc', auth)).json<{ schedules: unknown[] }>();
+    expect(list.schedules).toHaveLength(0);
+  });
 });
 
 describe('ownership (AC1: no cross-project oracle)', () => {
@@ -345,6 +376,17 @@ describe('PUT /api/schedules/:id (AC1/AC4)', () => {
 
     expect((await put('/api/schedules/101?project_id=svc', { name: 'bad name!' }, auth)).status).toBe(400);
     expect((await put('/api/schedules/101?project_id=svc', { name: 'b' }, auth)).status).toBe(409);
+  });
+
+  it('rejects non-numeric interval_minutes with 400 (fail loud, no silent clamp)', async () => {
+    await seedProject({ id: 'svc', token: TOKEN });
+    await seedSchedule('svc');
+
+    const res = await put('/api/schedules/101?project_id=svc', { interval_minutes: 'abc' }, auth);
+    expect(res.status).toBe(400);
+    // untouched — nothing was silently clamped to the fallback
+    const row = await getSchedule(101);
+    expect(row?.interval_minutes).toBe(60);
   });
 });
 

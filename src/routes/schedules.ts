@@ -9,7 +9,7 @@
 import { Hono, type Context } from 'hono';
 import type { AppBindings, Schedule, ScheduleCreatePayload, ScheduleUpdatePayload } from '../types';
 import { authenticateProject } from '../lib/auth';
-import { clampInt, isValidCheckName } from '../lib/validate';
+import { clampRange, isValidCheckName } from '../lib/validate';
 import { toHex } from '../services/scheduler';
 
 const schedules = new Hono<{ Bindings: AppBindings }>();
@@ -92,10 +92,19 @@ schedules.post('/api/schedules', async (c) => {
   if (!isValidCallbackUrl(callback_url)) {
     return c.json({ error: 'Invalid callback_url: must be an https:// URL of at most 500 chars' }, 400);
   }
-  // Non-numeric interval would clamp to the fallback and silently register
+  // Non-numeric numerics would clamp to the fallback and silently register
   // a wrong cadence — reject instead of guessing (fail loud).
   if (body.interval_minutes !== undefined && !Number.isFinite(Number(body.interval_minutes))) {
     return c.json({ error: 'interval_minutes must be a number' }, 400);
+  }
+  if (body.retry_count !== undefined && !Number.isFinite(Number(body.retry_count))) {
+    return c.json({ error: 'retry_count must be a number' }, 400);
+  }
+  if (
+    body.alert_after_failures !== undefined &&
+    !Number.isFinite(Number(body.alert_after_failures))
+  ) {
+    return c.json({ error: 'alert_after_failures must be a number' }, 400);
   }
 
   const clash = await db
@@ -106,9 +115,9 @@ schedules.post('/api/schedules', async (c) => {
     return c.json({ error: 'Schedule name already exists for this project' }, 409);
   }
 
-  const interval = clampInt(body.interval_minutes ?? 60, 1, 10080);
-  const retry = clampInt(body.retry_count ?? 0, 0, 1);
-  const alertAfter = clampInt(body.alert_after_failures ?? 0, 0, 100);
+  const interval = clampRange(body.interval_minutes ?? 60, 1, 10080, 60);
+  const retry = clampRange(body.retry_count ?? 0, 0, 1, 0);
+  const alertAfter = clampRange(body.alert_after_failures ?? 0, 0, 100, 0);
   const secret = generateSecret();
 
   const result = await db
@@ -167,6 +176,21 @@ schedules.put('/api/schedules/:id', async (c) => {
     return c.json({ error: 'Invalid request body' }, 400);
   }
 
+  // Fail loud on non-numeric numerics — silently clamping to the fallback
+  // would store a cadence the caller never asked for.
+  if (body.interval_minutes !== undefined && !Number.isFinite(Number(body.interval_minutes))) {
+    return c.json({ error: 'interval_minutes must be a number' }, 400);
+  }
+  if (body.retry_count !== undefined && !Number.isFinite(Number(body.retry_count))) {
+    return c.json({ error: 'retry_count must be a number' }, 400);
+  }
+  if (
+    body.alert_after_failures !== undefined &&
+    !Number.isFinite(Number(body.alert_after_failures))
+  ) {
+    return c.json({ error: 'alert_after_failures must be a number' }, 400);
+  }
+
   const name = body.name === undefined ? null : isValidCheckName(body.name) ? body.name : null;
   if (body.name !== undefined && name === null) {
     return c.json({ error: 'Invalid name' }, 400);
@@ -187,10 +211,10 @@ schedules.put('/api/schedules/:id', async (c) => {
   }
 
   const interval =
-    body.interval_minutes === undefined ? null : clampInt(body.interval_minutes, 1, 10080);
-  const retry = body.retry_count === undefined ? null : clampInt(body.retry_count, 0, 1);
+    body.interval_minutes === undefined ? null : clampRange(body.interval_minutes, 1, 10080, 60);
+  const retry = body.retry_count === undefined ? null : clampRange(body.retry_count, 0, 1, 0);
   const alertAfter =
-    body.alert_after_failures === undefined ? null : clampInt(body.alert_after_failures, 0, 100);
+    body.alert_after_failures === undefined ? null : clampRange(body.alert_after_failures, 0, 100, 0);
   const paused = body.paused === 0 || body.paused === 1 ? body.paused : null;
 
   await db

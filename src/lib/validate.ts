@@ -38,6 +38,17 @@ export function clampInt(value: unknown, min: number, fallback: number): number 
   return Number.isFinite(n) ? Math.max(min, n) : fallback;
 }
 
+/**
+ * Clamp to [min, max] (integer); non-finite input returns fallback.
+ * Unlike clampInt this enforces an upper bound — needed wherever an
+ * unbounded value would be persisted (retry_count, alert_after_failures).
+ */
+export function clampRange(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
 /** Escape SQLite LIKE wildcards for use with `ESCAPE '\'`. */
 export function escapeLikePattern(pattern: string): string {
   return pattern.replace(/[\\%_]/g, (ch) => `\\${ch}`);
