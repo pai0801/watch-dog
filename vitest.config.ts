@@ -9,7 +9,7 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
         // Test-only bindings (overrides .dev.vars / secrets)
-        bindings: { ADMIN_ACCOUNT: 'test-admin', ADMIN_PASSWORD: 'test-admin-token', CF_USAGE_API_TOKEN: 'test-usage-api-token', OPS_CONTROL_HOST_TOKEN: 'test-ops-host-token' },
+        bindings: { ADMIN_ACCOUNT: 'test-admin', ADMIN_PASSWORD: 'test-admin-token', CF_USAGE_API_TOKEN: 'test-usage-api-token', OPS_CONTROL_HOST_TOKEN: 'test-ops-host-token', OPS_CONTROL_HEARTBEAT_URL: 'https://ops-ctl.test.local' },
       },
     }),
   ],

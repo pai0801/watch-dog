@@ -14,6 +14,7 @@ import apiRoutes from './routes/api';
 import adminRoutes from './routes/admin';
 import schedulesRoutes from './routes/schedules';
 import { scheduled } from './cron';
+import { piggybackOpsControlHeartbeat } from './services/crossMonitor';
 import { assertBindings } from './lib/bindings';
 
 const app = new Hono<{ Bindings: AppBindings }>();
@@ -30,6 +31,11 @@ app.route('/', adminRoutes);
 export default {
   fetch: (request: Request, env: AppBindings, ctx: ExecutionContext): Response | Promise<Response> => {
     assertBindings(env); // per-request fail-fast (Workers have no startup hook)
+    // Cross-monitor piggyback (throttled, fire-and-forget): keep the
+    // ops-control heartbeat fresh from the fetch path — CF cron dispatch
+    // jitter must not read as "worker dead". See crossMonitor.ts for the
+    // semantics trade-off this implies.
+    piggybackOpsControlHeartbeat(env, ctx);
     return app.fetch(request, env, ctx);
   },
   scheduled,

@@ -356,3 +356,17 @@ it("K: framework 拷貝伴隨 .framework-baseline（防 merge-sync 靜默退化 
   }
   expect(violations, `§K baseline 衛生:\n${violations.join("\n")}`).toHaveLength(0);
 });
+
+// ---------- §N — cross-monitor wiring pin（2026-10-23） ----------
+// vitest 用 miniflare bindings override OPS_CONTROL_HEARTBEAT_URL 換成測試
+// host，測試套件因此不再隱式釘住 prod 值——本 guard 補釘：prod [vars] 的
+// heartbeat URL 一旦被誤改/誤刪，這裡紅燈（非 secret，域 C 明文）。
+it("§N: wrangler.jsonc vars.OPS_CONTROL_HEARTBEAT_URL 釘住 prod ops-control Custom Domain", () => {
+  const wrangler = readFileSync(join(REPO, "wrangler.jsonc"), "utf-8");
+  const m = wrangler.match(/"OPS_CONTROL_HEARTBEAT_URL":\s*"([^"]+)"/);
+  expect(m, "wrangler.jsonc 缺 OPS_CONTROL_HEARTBEAT_URL [vars]（cross-monitor 接線斷了）").not.toBeNull();
+  expect(
+    m![1],
+    "OPS_CONTROL_HEARTBEAT_URL 改動了——Custom Domain 是 Worker→Worker 跨帳號唯一路徑（1042），確認後同步更新本 pin"
+  ).toBe("https://ops-control.travelplus.cc");
+});

@@ -556,7 +556,7 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
     await seedSchedule('svc', { next_run_at: nowSec() + 3600 }); // keep engine quiet
     const hearts: Array<{ auth: string; body: string }> = [];
     network.use(
-      http.post('https://ops-control.travelplus.cc/api/heartbeat', async ({ request }) => {
+      http.post('https://ops-ctl.test.local/api/heartbeat', async ({ request }) => {
         hearts.push({ auth: request.headers.get('Authorization') ?? '', body: await request.text() });
         return HttpResponse.json({ ok: true });
       })
@@ -612,7 +612,11 @@ describe('cron wiring (invariant ①: fail-dead unaffected)', () => {
 // ============================================================================
 
 import type { AppBindings } from '../src/types';
-import { sendOpsControlHeartbeat } from '../src/services/crossMonitor';
+import {
+  piggybackOpsControlHeartbeat,
+  resetPiggybackThrottleForTests,
+  sendOpsControlHeartbeat,
+} from '../src/services/crossMonitor';
 
 describe('sendOpsControlHeartbeat (cross-monitor)', () => {
   beforeEach(async () => {
@@ -625,4 +629,62 @@ describe('sendOpsControlHeartbeat (cross-monitor)', () => {
     expect(await sendOpsControlHeartbeat({} as AppBindings)).toBe(false);
   });
 
+});
+
+describe('piggybackOpsControlHeartbeat (fetch-path refresh)', () => {
+  const OPS_URL = 'https://ops-ctl.test.local';
+  const wiredEnv = {
+    OPS_CONTROL_HEARTBEAT_URL: OPS_URL,
+    OPS_CONTROL_HOST_TOKEN: 'test-ops-host-token',
+  } as AppBindings;
+
+  /** Captures waitUntil promises so we can await the fire-and-forget send. */
+  const fakeCtx = () => {
+    const pending: Promise<unknown>[] = [];
+    return { ctx: { waitUntil: (p: Promise<unknown>) => { pending.push(p); } }, pending };
+  };
+
+  beforeEach(() => {
+    resetPiggybackThrottleForTests();
+  });
+
+  it('sends a heartbeat via waitUntil (signed, correct path+body)', async () => {
+    const hits: Array<{ auth: string; body: Record<string, unknown> }> = [];
+    network.use(
+      http.post(`${OPS_URL}/api/heartbeat`, async ({ request }) => {
+        hits.push({
+          auth: request.headers.get('Authorization') ?? '',
+          body: (await request.json()) as Record<string, unknown>,
+        });
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    const { ctx, pending } = fakeCtx();
+    piggybackOpsControlHeartbeat(wiredEnv, ctx);
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].auth).toBe('Bearer test-ops-host-token');
+    expect(hits[0].body.host).toBe('watch-dog');
+  });
+
+  it('throttles: a second call inside the 45s window sends nothing', async () => {
+    let hits = 0;
+    network.use(http.post(`${OPS_URL}/api/heartbeat`, () => { hits++; return HttpResponse.json({ ok: true }); }));
+
+    const { ctx, pending } = fakeCtx();
+    piggybackOpsControlHeartbeat(wiredEnv, ctx); // window opens
+    piggybackOpsControlHeartbeat(wiredEnv, ctx); // inside window → no-op
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+    expect(hits).toBe(1);
+  });
+
+  it('no-ops without the optional wiring (no waitUntil scheduled)', () => {
+    const { ctx, pending } = fakeCtx();
+    piggybackOpsControlHeartbeat({} as AppBindings, ctx);
+    expect(pending).toHaveLength(0);
+  });
 });
