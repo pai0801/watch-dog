@@ -23,7 +23,9 @@ worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD", "CF_USAGE_API_TOKEN"]
 # D1 settings 表為單一真相源。
 # OPS_CONTROL_HOST_TOKEN（2026-10-19）：跨服務互監——watch-dog 每分鐘向 ops-control
 #（獨立 CF 帳號）發 heartbeat；缺 token → 靜默跳過，互監失效不拖垮核心哨兵。
-optional_worker = ["OPS_CONTROL_HOST_TOKEN"]
+# TRIGGER_TOKEN（2026-10-24）：外部引擎觸發源（rn1g VPS cron → POST /api/engine/trigger）
+# ——CF cron dispatch 抖動的第二觸發源；缺 token → 端點 fail-closed(503)，核心哨兵不受影響。
+optional_worker = ["OPS_CONTROL_HOST_TOKEN", "TRIGGER_TOKEN"]
 
 # legacy_names(10 §3 / guard §J)：命名 drift 允許清單。
 # ADMIN_ACCOUNT/ADMIN_PASSWORD（2026-09-05 起）：操作者指定的帳密「成對」命名——
@@ -68,6 +70,17 @@ authority = "B"
 provenance = "ops-control 的 host heartbeat Bearer token（源服務自產；watch-dog 2026-10-19 接入消費，值 file-sourced 自 ops-control .env）"
 shared_across = ["ops-control(HOST_TOKEN)"]
 last_rotated = "2026-10-19（watch-dog 首次接入；值同 ops-control 既有 HOST_TOKEN）"
+owner = "@peter"
+
+[[secrets.meta]]
+# 外部觸發源專用 token（自產；不與任何既有 secret 共值）。值同時存在 rn1g 的
+# ~/.watchdog-trigger.env（600）——輪替時兩處同步（wrangler secret put + scp env 檔）。
+name = "TRIGGER_TOKEN"
+env = "all"
+authority = "B"
+provenance = "自產 openssl rand -hex 24（2026-10-24 file-sourced）；watch-dog 端 wrangler secret、rn1g 端 env 檔各一份"
+shared_across = ["rn1g(watchdog-trigger.sh)"]
+last_rotated = "2026-10-24（首次建立）"
 owner = "@peter"
 
 [[secrets.meta]]

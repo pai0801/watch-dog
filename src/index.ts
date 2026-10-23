@@ -13,6 +13,7 @@ import dashboardRoutes from './routes/dashboard';
 import apiRoutes from './routes/api';
 import adminRoutes from './routes/admin';
 import schedulesRoutes from './routes/schedules';
+import triggerRoutes from './routes/trigger';
 import { scheduled } from './cron';
 import { piggybackOpsControlHeartbeat } from './services/crossMonitor';
 import { assertBindings } from './lib/bindings';
@@ -26,6 +27,10 @@ app.route('/', apiRoutes);
 // middleware/handlers run in registration order (later-mounted handlers
 // would be gated by Basic Auth). Same reason apiRoutes sits above.
 app.route('/', schedulesRoutes);
+// Public token-authed trigger endpoint (rn1g second source) — same
+// mount-order rule as schedulesRoutes: before adminRoutes' app-wide
+// Basic Auth gate.
+app.route('/', triggerRoutes);
 app.route('/', adminRoutes);
 
 export default {

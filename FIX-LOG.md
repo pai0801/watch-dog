@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-10-23] cross-monitor fetch-path piggyback——免疫 CF cron dispatch 抖動誤報
+
+**目標**：修 ops-control 連環誤報「watch-dog 離線 CRITICAL」。鑑識（ops-control D1 ↔ watch-dog self-pulse 雙庫交叉時間戳＋wrangler tail 直擊）確診機制鏈：CF scheduled dispatch 常態晚 ~50s（self-pulse 秒數直方圖 10-19 起 92-99% 落 :45-:55），2026-10-23 UTC 04:00 起 APAC 尖峰抖動把 dispatch 推過分鐘邊界，at-most-once-per-minute 合併丟拍 → heartbeat gap 120-500s → ops-control 全域 120s 門檻誤報。
+**原因**：心跳源頭（CF cron）與門檻（120s）的容錯錯配：對常態晚發 :50 的 */1 cron 真容錯僅 ~70s，先天脆弱；watch-dog 端無解（漏 tick 期間沒被 invoke，無法 catch-up）。
+**預期結果**：`piggybackOpsControlHeartbeat`（`src/services/crossMonitor.ts`）：fetch 入口呼叫、45s module-level throttle、waitUntil fire-and-forget、缺 wiring no-op——受監專案 pulse 每 ~20s 走 fetch 進來且不經 scheduler 佇列，活著的 worker 由請求路徑保鮮 heartbeat；worker 死了沒有任何請求，fail-dead 語義不變（不變式①）。明示 trade-off（code comment＋操作者拍板）：掩蓋「cron 死但 fetch 活」且流量不斷時為無限期；兩全需 ops-control 端 fetch-only fuse（未做）。搭配 ops-control 端 per-host staleSeconds（watch-dog=300s，獨立 repo PR）。測試密閉三件套：setup.ts default MSW handler（beforeAll+afterEach；piggyback 在每 isolate 首請求即觸發，無 handler 會 passthrough unhandled rejection）、vitest URL override＋§N guard 釘 prod [vars]、既有 wiring 測試改測試 URL。
+**範圍**：`src/services/crossMonitor.ts`、`src/index.ts`、`tests/schedules.test.ts`（+3 tests）、`tests/setup.ts`、`tests/guards/portability.test.ts`（+§N）、`vitest.config.ts`。commit 鏈：539f5d0→fa3a8e7（squash 3f547b7 進 main）。PR #1。
+**驗證**：`make ci` 全綠（tsc ✓ / ESLint ✓ / app pool **222/222 ✓ 0 errors** / guards 16/16 ✓ / §L ✓ / §M 僅既有 legacy warns）；code-reviewer 兩輪無 blocker（3 項發現全修：MSW 密閉、masking 語義訂正、§N pin）；部署後線上實證：10 分鐘 16 筆 heartbeat（cron-only ~10）、秒數分佈 :00-:06（fetch piggyback）＋:50（cron），與 ops-control KV `host:watch-dog.staleSeconds=300` 雙閘生效。
+
 ### [2026-10-19] Scheduler Hub（排程觸發樞紐）——dumb-ticker 排程回呼＋cron */1
 
 **目標**：plan `docs/plans/2026-10-19-scheduler-hub-plan.md`（tier major 全 gate；設計 `docs/plans/2026-10-19-scheduler-hub-design.md`）。把 watch-dog 升級為排程樞紐：受監專案用既有 project token 註冊固定間隔 HTTPS 回呼（`POST /api/schedules`，secret 建立時回傳一次），每分鐘 tick 到期主動 POST 叫醒（HMAC-SHA256 簽名防偽造/重放）——1 條既有 cron slot 服務全部專案（帳號 Free 5-cron 上限已滿）。

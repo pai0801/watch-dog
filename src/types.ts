@@ -58,6 +58,13 @@ export interface AppBindings extends Env {
    * https://ops-control.<subdomain>.workers.dev — no trailing slash.
    */
   OPS_CONTROL_HEARTBEAT_URL?: string;
+  /**
+   * Optional external engine trigger: bearer token for POST /api/engine/trigger
+   * (rn1g VPS cron = second trigger source, 2026-10-24). Missing → endpoint
+   * fails closed (503); core sentinel unaffected (10 §5.2 optional wiring).
+   * Set via `wrangler secret put TRIGGER_TOKEN`.
+   */
+  TRIGGER_TOKEN?: string;
 }
 
 /**
