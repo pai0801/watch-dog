@@ -654,7 +654,7 @@ describe('piggybackOpsControlHeartbeat (fetch-path refresh)', () => {
       http.post(`${OPS_URL}/api/heartbeat`, async ({ request }) => {
         hits.push({
           auth: request.headers.get('Authorization') ?? '',
-          body: await request.json(),
+          body: (await request.json()) as Record<string, unknown>,
         });
         return HttpResponse.json({ ok: true });
       })

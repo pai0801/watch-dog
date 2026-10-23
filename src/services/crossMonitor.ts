@@ -48,10 +48,15 @@ export async function sendOpsControlHeartbeat(env: AppBindings): Promise<boolean
 // path. Fail-dead intact: a dead worker takes no requests → no piggyback.
 //
 // Deliberate trade-off (operator decision 2026-10-23): this MASKS the
-// "cron engine dead while fetch alive" failure class (delayed dead-service
-// detection, minutes at most). Dispatch jitter of that shape is not
-// page-worthy; true worker death stays detected. If that judgment changes,
-// gate the piggyback on the self-health check's last_seen freshness.
+// "cron engine dead while fetch alive" failure class — and since healthy
+// monitored projects pulse continuously, that masking is INDEFINITE while
+// fetch traffic flows (not merely delayed detection): cron death surfaces
+// to ops-control only once traffic stops too. Dispatch jitter of that shape
+// is not page-worthy; true worker death stays detected. If that judgment
+// changes, the fix is an ops-control-side signal (e.g. alert when only
+// fetch-path heartbeats arrive for > N minutes) — gating here on self-health
+// freshness would defeat the piggyback's entire purpose (jitter gaps ARE
+// self-health staleness).
 //
 // Module-level throttle: each isolate throttles independently (harmless —
 // ops-control dedupes same-second inserts; KV/D1 cost stays O(pulses)).
