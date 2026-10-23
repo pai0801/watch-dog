@@ -21,7 +21,6 @@ export async function runEngineTick(
   scheduledTimeMs: number,
   via: 'cron' | 'trigger'
 ): Promise<void> {
-  {
       const now = Math.floor(Date.now() / 1000);
       // Log cleanup gate: run at the top of each hour, not every minute.
       // Cron fires every minute but old-log DELETE only needs hourly cadence —
@@ -148,7 +147,6 @@ export async function runEngineTick(
       } catch (e) {
         console.error('Cross-monitor heartbeat error:', e);
       }
-  }
 }
 
 export const scheduled = async (
@@ -157,4 +155,4 @@ export const scheduled = async (
   ctx: ExecutionContext
 ): Promise<void> => {
   ctx.waitUntil(runEngineTick(env, event.scheduledTime, 'cron'));
-};;
+};

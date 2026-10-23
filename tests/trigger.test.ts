@@ -22,6 +22,18 @@ beforeEach(async () => {
 });
 
 describe('POST /api/engine/trigger', () => {
+  it('503 fail-closed when TRIGGER_TOKEN wiring is absent (route-level)', async () => {
+    // Route-level unit: env WITHOUT TRIGGER_TOKEN must fail closed before any
+    // DB/auth work. (The shared SELF worker always has the test binding, so we
+    // drive the route module directly with a hand-built env.)
+    const { default: triggerApp } = await import('../src/routes/trigger');
+    const res = await triggerApp.request('https://watch-dog.test/api/engine/trigger', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer anything' },
+    }, { DB: E.DB } as unknown as import('../src/types').AppBindings);
+    expect(res.status).toBe(503);
+  });
+
   it('401 without / with wrong Bearer token', async () => {
     const noAuth = await SELF.fetch(`${BASE}/api/engine/trigger`, { method: 'POST' });
     expect(noAuth.status).toBe(401);

@@ -16,7 +16,7 @@ set -u
 ENV_FILE="$HOME/.watchdog-trigger.env"
 LOG="$HOME/logs/watchdog-trigger.log"
 STATE="$HOME/sysWork/.wd-probe-state"
-mkdir -p "$HOME/logs"
+mkdir -p "$HOME/logs" "$(dirname "$STATE")"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "$(date -Is) env file missing: $ENV_FILE" >> "$LOG"
