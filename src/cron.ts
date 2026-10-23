@@ -8,23 +8,29 @@ import { pollCfUsage } from './services/cfUsage';
 import { sendOpsControlHeartbeat } from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
 
-export const scheduled = async (
-  event: ScheduledEvent,
+/**
+ * One full engine pass — shared verbatim by the CF cron trigger and the
+ * external trigger endpoint (POST /api/engine/trigger, rn1g VPS cron =
+ * second trigger source, 2026-10-24). Same isolation classes, same order:
+ * fail-dead path first, then usage poll, scheduler hub, cross-monitor.
+ * `via` only tags the cross-monitor heartbeat source (ops-control engine
+ * fuse); behavior is otherwise identical.
+ */
+export async function runEngineTick(
   env: AppBindings,
-  ctx: ExecutionContext
-): Promise<void> => {
-  ctx.waitUntil(
-    (async () => {
+  scheduledTimeMs: number,
+  via: 'cron' | 'trigger'
+): Promise<void> {
       const now = Math.floor(Date.now() / 1000);
       // Log cleanup gate: run at the top of each hour, not every minute.
       // Cron fires every minute but old-log DELETE only needs hourly cadence —
       // 1440×/day was burning the shared-account D1 rows-read quota (~4M/day).
       // scheduledTime is the XX:00 firing but may drift by a few ms, so match
       // any second within the first minute after the hour boundary (< 60).
-      const cleanupDue = Math.floor(event.scheduledTime / 1000) % 3600 < 60;
+      const cleanupDue = Math.floor(scheduledTimeMs / 1000) % 3600 < 60;
       // CF usage poll gate: every 30 minutes, same drift-tolerant idiom.
       // (Kept independent from cleanupDue so the cadences can't entangle.)
-      const usagePollDue = Math.floor(event.scheduledTime / 1000) % 1800 < 60;
+      const usagePollDue = Math.floor(scheduledTimeMs / 1000) % 1800 < 60;
 
       try {
         // ===== Self-Monitoring: Watch-Dog monitors itself =====
@@ -108,7 +114,7 @@ export const scheduled = async (
       // suspenders.
       if (usagePollDue) {
         try {
-          const summary = await pollCfUsage(env.DB, event.scheduledTime);
+          const summary = await pollCfUsage(env.DB, scheduledTimeMs);
           if (summary.failures.length > 0) {
             console.error(
               `[cf-usage] poll failures: ${summary.failures.map((f) => `${f.label}: ${f.error}`).join('; ')}`
@@ -126,7 +132,7 @@ export const scheduled = async (
       // contains per-fire failures but its due/projects SELECTs can throw —
       // THIS wrapper is the containment boundary, not belt-and-suspenders.
       try {
-        await runDueSchedules(env.DB, now, event.scheduledTime);
+        await runDueSchedules(env.DB, now, scheduledTimeMs);
       } catch (e) {
         console.error('Scheduler hub error:', e);
       }
@@ -137,10 +143,16 @@ export const scheduled = async (
       // goes stale and ops-control alerts the operator (Slack + email-king).
       // Optional wiring: missing token/URL → sendOpsControlHeartbeat no-ops.
       try {
-        await sendOpsControlHeartbeat(env);
+        await sendOpsControlHeartbeat(env, via);
       } catch (e) {
         console.error('Cross-monitor heartbeat error:', e);
       }
-    })()
-  );
+}
+
+export const scheduled = async (
+  event: ScheduledEvent,
+  env: AppBindings,
+  ctx: ExecutionContext
+): Promise<void> => {
+  ctx.waitUntil(runEngineTick(env, event.scheduledTime, 'cron'));
 };

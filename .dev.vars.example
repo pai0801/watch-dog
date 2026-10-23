@@ -21,4 +21,7 @@ CF_USAGE_API_TOKEN=change-me-local-usage-api-token
 # Leave EMPTY locally to skip the heartbeat (missing token → no-op —
 # local dev must not 401-spam the real ops-control).
 OPS_CONTROL_HOST_TOKEN=
+# External engine trigger token (rn1g cron -> POST /api/engine/trigger; optional wiring,
+# missing -> endpoint fails closed 503). Also lives on rn1g in ~/.watchdog-trigger.env.
+TRIGGER_TOKEN=
 # Endpoint comes from wrangler.jsonc [vars] (OPS_CONTROL_HEARTBEAT_URL).

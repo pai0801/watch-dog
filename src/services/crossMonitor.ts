@@ -12,9 +12,20 @@
 import type { ExecutionContext } from '@cloudflare/workers-types';
 import type { AppBindings } from '../types';
 
+/** Heartbeat source tag. ops-control's engine fuse distinguishes engine
+ *  runs (cron / external trigger) from fetch-path piggyback refreshes —
+ *  a host whose freshest heartbeats are ALL 'fetch' may have a dead
+ *  detection engine while the worker keeps serving (2026-10-24). */
+export type HeartbeatSource = 'cron' | 'trigger' | 'fetch';
+
 /** Send one heartbeat to ops-control. No-op (returns false) when the
- *  optional token/URL isn't configured. Never throws to the caller. */
-export async function sendOpsControlHeartbeat(env: AppBindings): Promise<boolean> {
+ *  optional token/URL isn't configured. Never throws to the caller.
+ *  Failures are logged (console.error) — tail-visible — so cross-monitor
+ *  outages are diagnosable instead of silently swallowed. */
+export async function sendOpsControlHeartbeat(
+  env: AppBindings,
+  via: HeartbeatSource = 'cron'
+): Promise<boolean> {
   const url = env.OPS_CONTROL_HEARTBEAT_URL;
   const token = env.OPS_CONTROL_HOST_TOKEN;
   if (!url || !token) return false;
@@ -27,13 +38,18 @@ export async function sendOpsControlHeartbeat(env: AppBindings): Promise<boolean
         Authorization: `Bearer ${token}`,
       },
       // sentinel fields don't apply to watch-dog; only offline detection
-      // (heartbeat staleness) is meaningful for this host.
-      body: JSON.stringify({ host: 'watch-dog', sentinelOk: true, internetOk: true }),
+      // (heartbeat staleness) is meaningful for this host. `via` tells
+      // ops-control which path produced this heartbeat (engine fuse).
+      body: JSON.stringify({ host: 'watch-dog', sentinelOk: true, internetOk: true, via }),
       signal: AbortSignal.timeout(5_000),
     });
     void res.body?.cancel().catch(() => {});
+    if (!res.ok) {
+      console.error(`[cross-monitor] heartbeat rejected (via=${via}): ${res.status} ${url}`);
+    }
     return res.ok;
-  } catch {
+  } catch (e) {
+    console.error(`[cross-monitor] heartbeat failed (via=${via}): ${e instanceof Error ? e.message : e}`);
     return false;
   }
 }
@@ -76,7 +92,7 @@ export function piggybackOpsControlHeartbeat(
   if (now - lastPiggybackMs < PIGGYBACK_INTERVAL_MS) return;
   lastPiggybackMs = now;
   ctx.waitUntil(
-    sendOpsControlHeartbeat(env).catch(() => {
+    sendOpsControlHeartbeat(env, 'fetch').catch(() => {
       /* containment only — sendOpsControlHeartbeat never throws */
     })
   );
