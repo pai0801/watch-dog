@@ -145,7 +145,7 @@ describe('scheduled handler — CF usage poll gate', () => {
   /** All-zero GraphQL fixture: 9 recorded rows, zero alerts. */
   const ZERO_USAGE = { data: { viewer: { accounts: [{}] } } };
 
-  it('polls CF usage on half-hour-aligned firings and records 9 metric rows', async () => {
+  it('polls CF usage on half-hour-aligned firings and records 11 metric rows', async () => {
     await seedCfAccount();
     let gqlHits = 0;
     network.use(
@@ -160,7 +160,7 @@ describe('scheduled handler — CF usage poll gate', () => {
 
     expect(gqlHits).toBe(1);
     const dayUtc = new Date(aligned).toISOString().slice(0, 10);
-    expect(await getUsageState(dayUtc, TEST_CF.accountId)).toHaveLength(9);
+    expect(await getUsageState(dayUtc, TEST_CF.accountId)).toHaveLength(11);
   });
 
   it('skips the usage poll on :15 firings (no fetch, no state rows)', async () => {

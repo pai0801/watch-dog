@@ -10,10 +10,10 @@
 //
 // Self-usage discipline — the monitor must not burn the very quota it
 // watches (the operator's explicit constraint): per poll it costs
-//   reads:  1× cf_accounts row per account + 9 state rows per account
+//   reads:  1× cf_accounts row per account + 11 state rows per account
 //           (PK day_utc prefix scan) + ≤9 yesterday rows on day rollover
 //           ≈ 80 rows fleet-wide (8 accounts)
-//   writes: 9 upserts + ≤9 claims + 1 health update per account ≈ 80 rows
+//   writes: 11 upserts + ≤11 claims + 1 health update per account ≈ 96 rows
 // At 48 polls/day that is ~3.8k rows read + ~3.8k rows written per day —
 // 0.08% of the 5M read / 3.8% of the 100k written free quota. The poller's
 // own usage shows up in the host account's d1_rows_read metric — the
@@ -89,6 +89,10 @@ interface DatasetDef {
   dimensions: string[];
   /** GraphQL field -> metric registry key. */
   fields: Record<string, string>;
+  /** Per-dimension-value split（KV actionType→writes/reads，2026-10-29 實證：
+   *  dimension 名是 actionType 非 actionID；值＝'write'|'read'|'delete' 小寫）。
+   *  有設定的 dataset：總計照 fields 累計，各 dimension 值另灌進 map 指標。 */
+  splitBy?: { dimension: string; map: Record<string, string> };
 }
 
 const DATASETS: readonly DatasetDef[] = [
@@ -105,10 +109,11 @@ const DATASETS: readonly DatasetDef[] = [
   },
   {
     alias: 'kvo', dataset: 'kvOperationsAdaptiveGroups', agg: 'sum', filterKind: 'datetimeHour',
-    // Read/write split via an actionID dimension is unverified — monitoring
-    // the total against the 100k reads quota; writes are a ~1% slice.
-    dimensions: [],
+    // actionType split（2026-10-29 live 實證）：writes 免費層限 1000/日——q-order
+    // 10-29 KV 燒穿事故的精確指標；reads 限 100k。總計另記 kv_ops（record-only）。
+    dimensions: ['actionType'],
     fields: { requests: 'kv_ops' },
+    splitBy: { dimension: 'actionType', map: { write: 'kv_writes', read: 'kv_reads' } },
   },
   {
     alias: 'kvs', dataset: 'kvStorageAdaptiveGroups', agg: 'max', filterKind: 'date',
@@ -144,7 +149,11 @@ export const METRICS: Readonly<Record<string, MetricDef>> = {
   d1_rows_written: { label: 'D1 rows 寫入', kind: 'counter', quotas: { free: 100_000 } },
   workers_requests: { label: 'Workers 請求', kind: 'counter', quotas: { free: 100_000 } },
   workers_errors: { label: 'Workers 錯誤', kind: 'counter', quotas: {} },
-  kv_ops: { label: 'KV 操作', kind: 'counter', quotas: { free: 100_000 } },
+  // KV 三兄弟（2026-10-29）：reads/writes 各自對限額警報；總計 record-only
+  // （總計對 reads 限額會重複報同一 class——分項才是正確語意）。
+  kv_writes: { label: 'KV 寫入', kind: 'counter', quotas: { free: 1_000 } },
+  kv_reads: { label: 'KV 讀取', kind: 'counter', quotas: { free: 100_000 } },
+  kv_ops: { label: 'KV 操作（總計）', kind: 'counter', quotas: {} },
   kv_storage_bytes: { label: 'KV 儲存量', kind: 'gauge', quotas: { free: 1_073_741_824 } },
   kv_storage_keys: { label: 'KV keys 數', kind: 'gauge', quotas: {} },
   r2_storage_bytes: { label: 'R2 儲存量', kind: 'gauge', quotas: { free: 10_737_418_240 }, unranked: true },
@@ -399,12 +408,19 @@ async function fetchAccountUsage(account: CfAccount, nowMs: number): Promise<Map
     const groups = node[ds.alias] ?? [];
     for (const [field, metricKey] of Object.entries(ds.fields)) {
       let v = 0;
+      const perSplit = ds.splitBy ? new Map<string, number>() : null;
       for (const g of groups) {
         const raw = ds.agg === 'sum' ? g.sum?.[field] : g.max?.[field];
         const n = typeof raw === 'number' ? raw : 0;
         v = ds.agg === 'sum' ? v + n : Math.max(v, n);
+        if (perSplit && ds.agg === 'sum' && ds.splitBy) {
+          const dimVal = (g.dimensions as Record<string, unknown> | null)?.[ds.splitBy.dimension];
+          const target = typeof dimVal === 'string' ? ds.splitBy.map[dimVal] : undefined;
+          if (target) perSplit.set(target, (perSplit.get(target) ?? 0) + n);
+        }
       }
       values.set(metricKey, Math.round(v));
+      if (perSplit) for (const [k, splitVal] of perSplit) values.set(k, Math.round(splitVal));
     }
   }
   return values;

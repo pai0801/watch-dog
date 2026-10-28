@@ -37,6 +37,8 @@ const usageFixture = (v: {
   wkrReq?: number;
   wkrErr?: number;
   kvOps?: number;
+  kvWrites?: number; // actionType split（2026-10-29 起的實際查詢形狀）
+  kvReads?: number;
   kvBytes?: number;
   kvKeys?: number;
   r2Bytes?: number;
@@ -53,7 +55,13 @@ const usageFixture = (v: {
               : []),
           ],
           wkr: [{ sum: { requests: v.wkrReq ?? 0, errors: v.wkrErr ?? 0 } }],
-          kvo: v.kvOps ? [{ sum: { requests: v.kvOps } }] : null,
+          kvo: v.kvWrites !== undefined || v.kvReads !== undefined
+            ? [
+              { dimensions: { actionType: 'write' }, sum: { requests: v.kvWrites ?? 0 } },
+              { dimensions: { actionType: 'read' }, sum: { requests: v.kvReads ?? 0 } },
+              { dimensions: { actionType: 'delete' }, sum: { requests: 0 } },
+            ]
+            : v.kvOps ? [{ sum: { requests: v.kvOps } }] : null,
           kvs: [{ max: { byteCount: v.kvBytes ?? 0, keyCount: v.kvKeys ?? 0 } }],
           r2s: v.r2Bytes || v.r2Objs ? [{ max: { payloadSize: v.r2Bytes ?? 0, objectCount: v.r2Objs ?? 0 } }] : null,
         },
@@ -126,9 +134,11 @@ describe('buildAccountQuery', () => {
     expect(q).not.toContain('sum(');
     expect(q).not.toContain('max(');
     expect(q).not.toContain('dimensions(');
-    // only D1 groups per-database; the other four select no dimensions at all
+    // D1 groups per-database; KV groups per actionType（2026-10-29 實證 dimension
+    // 名是 actionType 非 actionID，值＝write/read/delete 小寫）；其餘三者無 dimensions
     expect(q).toContain('dimensions { databaseId }');
-    expect((q.match(/dimensions \{/g) ?? []).length).toBe(1);
+    expect(q).toContain('dimensions { actionType }');
+    expect((q.match(/dimensions \{/g) ?? []).length).toBe(2);
   });
 });
 
@@ -202,23 +212,29 @@ describe('pollCfUsage — integration', () => {
     expect(await getUsageState(DAY, TEST_CF.accountId)).toHaveLength(0);
   });
 
-  it('records all 9 metrics with values, projections for counters only, no alerts', async () => {
+  it('records all 11 metrics with values, projections for counters only, no alerts', async () => {
     await seedCfAccount();
     useGqlFixture({
       d1Read: 1_000_000, d1Write: 10_000, wkrReq: 10_000, wkrErr: 3,
-      kvOps: 5_000, kvBytes: 100_000_000, kvKeys: 120, r2Bytes: 1_000_000_000, r2Objs: 50,
+      kvWrites: 400, kvReads: 4_600, // 總計 5_000（write 40% / read 4.6%——皆未過線）
+      kvBytes: 100_000_000, kvKeys: 120, r2Bytes: 1_000_000_000, r2Objs: 50,
     });
 
     const summary = await pollCfUsage(DB, CF_TEST_NOW);
 
-    expect(summary).toEqual({ polled: 1, recorded: 9, alertsSent: 0, failures: [] });
+    expect(summary).toEqual({ polled: 1, recorded: 11, alertsSent: 0, failures: [] });
     const rows = await getUsageState(DAY, TEST_CF.accountId);
-    expect(rows).toHaveLength(9);
+    expect(rows).toHaveLength(11);
     const byMetric = Object.fromEntries(rows.map((r) => [r.metric, r]));
     expect(byMetric.d1_rows_read.value).toBe(1_000_000);
     expect(byMetric.d1_rows_read.projected_eod).toBe(2_000_000); // noon → ×2
     expect(byMetric.workers_errors.value).toBe(3);
     expect(byMetric.workers_errors.projected_eod).toBeNull(); // record-only: quota 0 → no projection
+    expect(byMetric.kv_writes.value).toBe(400);
+    expect(byMetric.kv_writes.projected_eod).toBe(800); // counter：正午 ×2
+    expect(byMetric.kv_reads.value).toBe(4_600);
+    expect(byMetric.kv_ops.value).toBe(5_000); // 總計＝write+read+delete
+    expect(byMetric.kv_ops.projected_eod).toBeNull(); // record-only（quotas {}）
     expect(byMetric.kv_storage_bytes.value).toBe(100_000_000);
     expect(byMetric.kv_storage_bytes.projected_eod).toBeNull(); // gauges never project
     expect(byMetric.r2_objects.value).toBe(50);
@@ -229,6 +245,20 @@ describe('pollCfUsage — integration', () => {
     expect(account?.last_error).toBeNull();
     expect(slackPosts).toHaveLength(0);
     expect(emailPosts).toHaveLength(0);
+  });
+
+  it('KV writes 1132/1000 → straight to critical（2026-10-29 q-order 事故回歸）', async () => {
+    await seedCfAccount();
+    useGqlFixture({ kvWrites: 1_132, kvReads: 1_268 }); // 事故當日實測值
+
+    const summary = await pollCfUsage(DB, CF_TEST_NOW);
+    expect(summary.alertsSent).toBe(1);
+    const critical = slackPosts.find((p) => p.channel === 'C_CRITICAL');
+    expect(critical?.body).toContain('KV 寫入');
+    expect(critical?.body).toContain('配額危險');
+    expect((await getUsageState(DAY, TEST_CF.accountId, 'kv_writes'))[0]?.alerted_level).toBe(2);
+    // reads 同刻只有 1.3%——不誤報
+    expect((await getUsageState(DAY, TEST_CF.accountId, 'kv_reads'))[0]?.alerted_level).toBe(0);
   });
 
   it('sums D1 groups across databases client-side (sum-of-sums)', async () => {
