@@ -7,6 +7,7 @@ import { findDeadChecks, processCheckResult } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
 import { sendOpsControlHeartbeat } from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
+import { cleanupOldIssues } from './services/issues';
 
 /**
  * One full engine pass — shared verbatim by the CF cron trigger and the
@@ -101,6 +102,9 @@ export async function runEngineTick(
           await env.DB
             .prepare("DELETE FROM cf_usage_state WHERE day_utc < date('now', '-14 days')")
             .run();
+          // Issues collector retention (2026-10-31): resolved/done 30 天、
+          // 事件史隨宿主刪 + 自身 90 天。低量表，與 logs 同班車無額度疑慮。
+          await cleanupOldIssues(env.DB);
         }
       } catch (e) {
         console.error('Cron error:', e);

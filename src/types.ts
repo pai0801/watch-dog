@@ -65,6 +65,20 @@ export interface AppBindings extends Env {
    * Set via `wrangler secret put TRIGGER_TOKEN`.
    */
   TRIGGER_TOKEN?: string;
+  /**
+   * Optional issues collector: secret for POST /api/ingest/issues (CF Workers
+   * Issues Automations generic webhook, 2026-10-31). CF sends it in the
+   * `cf-webhook-auth` header. Missing → endpoint fails closed (503); core
+   * sentinel unaffected. Set via `wrangler secret put ISSUES_INGEST_TOKEN`.
+   */
+  ISSUES_INGEST_TOKEN?: string;
+  /**
+   * Optional remediation lane: bearer token for the Windmill pull/claim/
+   * feedback/heartbeat API (/api/windmill/*, rn4g-1 VPS). Missing → endpoints
+   * fail closed (503). Set via `wrangler secret put WINDMILL_TOKEN`. See
+   * docs/WINDMILL-CONTRACT.md — the contract Windmill must obey.
+   */
+  WINDMILL_TOKEN?: string;
 }
 
 /**
@@ -256,4 +270,56 @@ export interface ScheduleUpdatePayload {
   retry_count?: number;
   alert_after_failures?: number;
   paused?: 0 | 1;
+}
+
+/**
+ * Issue entity — one CF Workers Issue tracked by the collector (2026-10-31).
+ * State machine + semantics: src/services/issues.ts; contract for the
+ * remediation lane: docs/WINDMILL-CONTRACT.md.
+ */
+export interface Issue {
+  id: number;
+  /** CF alert_correlation_id（去重 fingerprint） */
+  fingerprint: string;
+  account_id: string | null;
+  script_name: string | null;
+  /** Mapped watch-dog project（NULL = 未映射） */
+  project_id: string | null;
+  title: string;
+  alert_type: string | null;
+  state: 'open' | 'claimed' | 'done' | 'escalated' | 'resolved';
+  attempt_count: number;
+  /** 1 = 本 episode 已告警過（gates recovery 通知） */
+  alerted: number;
+  claimed_at: number | null;
+  claimed_by: string | null;
+  last_event: string | null;
+  /** Raw payload JSON（截斷）——僅 DB，不進公開頁面 */
+  payload: string | null;
+  first_seen: number;
+  last_seen: number;
+  resolved_at: number | null;
+  escalated_at: number | null;
+}
+
+/** 審計軌跡：issue 狀態機的每次流轉。 */
+export interface IssueEvent {
+  id: number;
+  issue_id: number;
+  event: string;
+  actor: 'cf-issues' | 'windmill' | 'fuse';
+  detail: string | null;
+  created_at: number;
+}
+
+/** Parsed view of a CF generic-webhook payload (Notifications schema). */
+export interface IngestedIssue {
+  fingerprint: string;
+  /** ALERT_STATE_EVENT_END → resolved；其餘視為 triggered */
+  kind: 'triggered' | 'resolved';
+  title: string;
+  scriptName: string | null;
+  accountId: string | null;
+  alertType: string | null;
+  payloadJson: string;
 }

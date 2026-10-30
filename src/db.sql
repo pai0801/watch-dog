@@ -266,3 +266,88 @@ INSERT OR IGNORE INTO settings (key, value, description) VALUES
     ('slack_channel_success', '', 'Slack Channel ID for Success/Recovery'),
     ('slack_channel_critical', '', 'Slack Channel ID for Critical alerts'),
     ('silence_period_seconds', '3600', 'Cooldown period in seconds for duplicate alerts');
+
+-- ============================================================================
+-- Issues Collector Tables (2026-10-31, WATCHDOG-015)
+-- ============================================================================
+-- CF Workers Issues + Automations → generic webhook → watch-dog 收集分診，
+-- Windmill（rn4g-1 VPS）poll 認領處置。四迴路閉環設計見
+-- docs/WINDMILL-CONTRACT.md。事件量級 = 聚合後 issue 狀態變化（低量），
+-- D1 無壓力；resolved/done 30 天由 cron 每小時清理。
+
+-- 每個 CF issue 一列（fingerprint = alert_correlation_id 去重）。
+-- 狀態機：open → claimed → done|failed(→open 重試)|skipped(→escalated)
+--         open --attempt>=2--> escalated（保險絲：自動處理上限，人工接手）
+--         任何狀態 --cf resolved--> resolved（attempt 歸零，新 episode 重新計數）
+CREATE TABLE IF NOT EXISTS issues (
+    -- Auto-incrementing primary key
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- CF alert_correlation_id（UUID，同 issue 聚合鍵）；缺漏時退化為
+    -- alert_type:account_id:episode_id 拼接
+    fingerprint TEXT NOT NULL UNIQUE,
+    -- CF account id（payload account_id；非 watch-dog 帳號標籤）
+    account_id TEXT,
+    -- 出問題的 Worker script 名（tolerant 解析，見 services/issues.ts）
+    script_name TEXT,
+    -- issue_map 映射到的 watch-dog project（NULL = 未映射，僅觀察）
+    project_id TEXT,
+    -- issue 標題（data.episode.summary ?? text ?? name）
+    title TEXT NOT NULL,
+    -- CF alert_type（如 workers_observability_alert）
+    alert_type TEXT,
+    -- 狀態機目前狀態：open|claimed|done|escalated|resolved
+    state TEXT NOT NULL DEFAULT 'open',
+    -- 自動處理嘗試次數（claim 時 +1；resolved 歸零）——保險絲計數器
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    -- 本 episode 是否已對操作者發過告警（gates recovery 通知，防孤兒 recovery）
+    alerted INTEGER NOT NULL DEFAULT 0,
+    -- Windmill 認領時間（「取過」標記）；NULL = 未認領
+    claimed_at INTEGER,
+    -- 認領者（目前固定 'windmill'）
+    claimed_by TEXT,
+    -- 最後一次 CF 事件（triggered|resolved），診斷用
+    last_event TEXT,
+    -- 最後一次原始 payload（JSON 字串，截 8KB —— 僅 DB 保存，不進公開頁面）
+    payload TEXT,
+    -- Unix timestamp 首次收到
+    first_seen INTEGER NOT NULL,
+    -- Unix timestamp 最後收到事件
+    last_seen INTEGER NOT NULL,
+    -- Unix timestamp CF 回報 resolved（NULL = 未解決）
+    resolved_at INTEGER,
+    -- Unix timestamp 保險絲觸發（attempt 達上限或 windmill skipped）
+    escalated_at INTEGER
+);
+
+-- 事件史（審計軌跡：機器到底對這個 issue 做過什麼）
+CREATE TABLE IF NOT EXISTS issue_events (
+    -- Auto-incrementing primary key
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Parent issue reference
+    issue_id INTEGER NOT NULL,
+    -- 事件種類：cf-triggered|cf-regressed|cf-resolved|claimed|feedback|escalated|reclaimed-stale
+    event TEXT NOT NULL,
+    -- 誰做的：cf-issues|windmill|fuse
+    actor TEXT NOT NULL,
+    -- JSON 詳情（{status, attempt, message...}，截 2KB）
+    detail TEXT,
+    -- Unix timestamp
+    created_at INTEGER DEFAULT (unixepoch())
+);
+
+-- script → project 映射（operator 維護；claim 自動設 maintenance 依賴它）
+CREATE TABLE IF NOT EXISTS issue_map (
+    -- CF Worker script 名（精確匹配）
+    script_name TEXT PRIMARY KEY,
+    -- 對應的 watch-dog project id
+    project_id TEXT NOT NULL,
+    -- Unix timestamp of creation
+    created_at INTEGER DEFAULT (unixepoch())
+);
+
+-- 公開觀察頁按 last_seen 倒序拉最近 100 筆
+CREATE INDEX IF NOT EXISTS idx_issues_last_seen ON issues(last_seen);
+-- Windmill pull：WHERE state = 'open'（等值前綴）
+CREATE INDEX IF NOT EXISTS idx_issues_state ON issues(state);
+-- 事件史按 issue 查（等值前綴）
+CREATE INDEX IF NOT EXISTS idx_issue_events_issue ON issue_events(issue_id);

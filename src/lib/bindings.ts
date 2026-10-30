@@ -25,7 +25,12 @@ export const REQUIRED_BINDING_KEYS = ['ADMIN_ACCOUNT', 'ADMIN_PASSWORD', 'CF_USA
  * first production deploy — D1 settings table is the single source of
  * truth; see TODO-REVIEW #7 and services/settings.ts getAllSettings.)
  */
-export const OPTIONAL_BINDING_KEYS = ['OPS_CONTROL_HOST_TOKEN', 'TRIGGER_TOKEN'] as const;
+export const OPTIONAL_BINDING_KEYS = [
+  'OPS_CONTROL_HOST_TOKEN',
+  'TRIGGER_TOKEN',
+  'ISSUES_INGEST_TOKEN',
+  'WINDMILL_TOKEN',
+] as const;
 
 export function assertBindings(env: AppBindings): void {
   const missing = REQUIRED_BINDING_KEYS.filter((k) => !env[k]);

@@ -47,6 +47,9 @@ export async function resetDb(): Promise<void> {
     DB.prepare('DELETE FROM cf_accounts'),
     DB.prepare('DELETE FROM cf_usage_state'),
     DB.prepare('DELETE FROM cf_resource_names'),
+    DB.prepare('DELETE FROM issue_events'),
+    DB.prepare('DELETE FROM issues'),
+    DB.prepare('DELETE FROM issue_map'),
   ]);
 }
 

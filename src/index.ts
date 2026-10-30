@@ -14,6 +14,7 @@ import apiRoutes from './routes/api';
 import adminRoutes from './routes/admin';
 import schedulesRoutes from './routes/schedules';
 import triggerRoutes from './routes/trigger';
+import issuesRoutes from './routes/issues';
 import { scheduled } from './cron';
 import { piggybackOpsControlHeartbeat } from './services/crossMonitor';
 import { assertBindings } from './lib/bindings';
@@ -31,6 +32,9 @@ app.route('/', schedulesRoutes);
 // mount-order rule as schedulesRoutes: before adminRoutes' app-wide
 // Basic Auth gate.
 app.route('/', triggerRoutes);
+// Issues 收集器（ingest + Windmill API + 觀察頁）——同上，掛在 admin 的
+// Basic Auth gate 之前；/issues 觀察頁本身公開唯讀。
+app.route('/', issuesRoutes);
 app.route('/', adminRoutes);
 
 export default {

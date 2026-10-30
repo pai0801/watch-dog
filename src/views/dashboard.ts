@@ -84,6 +84,7 @@ export const DashboardContent = (
   <div class="dashboard-tabs" role="tablist">
     <button type="button" role="tab" :aria-selected="tab === 'status'" :class="tab === 'status' ? 'primary' : 'outline secondary'" @click="tab = 'status'; location.hash = 'status'">服務狀態</button>
     <button type="button" role="tab" :aria-selected="tab === 'cf'" :class="tab === 'cf' ? 'primary' : 'outline secondary'" @click="tab = 'cf'; location.hash = 'cf'">CF 用量</button>
+    <a href="/issues" role="tab" class="outline secondary" style="text-decoration: none; display: inline-block; padding: 0.5rem 0.9rem; border-radius: 0.25rem;">待處理 log</a>
   </div>
   <div role="tabpanel" x-show="tab === 'status'">
     ${StatsCards(stats)}

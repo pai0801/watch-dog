@@ -25,7 +25,11 @@ worker = ["ADMIN_ACCOUNT", "ADMIN_PASSWORD", "CF_USAGE_API_TOKEN"]
 #（獨立 CF 帳號）發 heartbeat；缺 token → 靜默跳過，互監失效不拖垮核心哨兵。
 # TRIGGER_TOKEN（2026-10-24）：外部引擎觸發源（rn1g VPS cron → POST /api/engine/trigger）
 # ——CF cron dispatch 抖動的第二觸發源；缺 token → 端點 fail-closed(503)，核心哨兵不受影響。
-optional_worker = ["OPS_CONTROL_HOST_TOKEN", "TRIGGER_TOKEN"]
+# ISSUES_INGEST_TOKEN（2026-10-31）：CF Workers Issues Automations generic webhook 的 secret
+#（CF 以 cf-webhook-auth header 送達）→ POST /api/ingest/issues；缺 → fail-closed(503)。
+# WINDMILL_TOKEN（2026-10-31）：rn4g-1 Windmill 處置車道（/api/windmill/*）的 Bearer token；
+# 缺 → 端點 fail-closed(503)。契約見 docs/WINDMILL-CONTRACT.md。
+optional_worker = ["OPS_CONTROL_HOST_TOKEN", "TRIGGER_TOKEN", "ISSUES_INGEST_TOKEN", "WINDMILL_TOKEN"]
 
 # legacy_names(10 §3 / guard §J)：命名 drift 允許清單。
 # ADMIN_ACCOUNT/ADMIN_PASSWORD（2026-09-05 起）：操作者指定的帳密「成對」命名——
@@ -81,6 +85,28 @@ authority = "B"
 provenance = "自產 openssl rand -hex 24（2026-10-24 file-sourced）；watch-dog 端 wrangler secret、rn1g 端 env 檔各一份"
 shared_across = ["rn1g(watchdog-trigger.sh)"]
 last_rotated = "2026-10-24（首次建立）"
+owner = "@peter"
+
+[[secrets.meta]]
+# CF Issues Automations generic webhook secret（自產）。CF 建目的地時自訂 secret 值，
+# 同值設為 watch-dog worker secret——兩處同步（CF dashboard + wrangler secret put）。
+name = "ISSUES_INGEST_TOKEN"
+env = "all"
+authority = "B"
+provenance = "自產 openssl rand -hex 24（2026-10-31 file-sourced）；CF Automations webhook 目的地的 secret 欄同值"
+shared_across = ["cf-dashboard(issues-automation-webhook-secret)"]
+last_rotated = "2026-10-31（首次建立，WATCHDOG-015）"
+owner = "@peter"
+
+[[secrets.meta]]
+# Windmill（rn4g-1）處置車道專用 token（自產；不與任何既有 secret 共值）。
+# 值同時存在 rn4g-1 Windmill variable store——輪替時兩處同步。
+name = "WINDMILL_TOKEN"
+env = "all"
+authority = "B"
+provenance = "自產 openssl rand -hex 24（2026-10-31 file-sourced）；watch-dog 端 wrangler secret、rn4g-1 Windmill variables 各一份"
+shared_across = ["rn4g-1(windmill)"]
+last_rotated = "2026-10-31（首次建立，WATCHDOG-015）"
 owner = "@peter"
 
 [[secrets.meta]]

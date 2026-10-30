@@ -25,3 +25,12 @@ OPS_CONTROL_HOST_TOKEN=
 # missing -> endpoint fails closed 503). Also lives on rn1g in ~/.watchdog-trigger.env.
 TRIGGER_TOKEN=
 # Endpoint comes from wrangler.jsonc [vars] (OPS_CONTROL_HEARTBEAT_URL).
+# --- Issues collector (optional, 2026-10-31) --------------------------------
+# CF Workers Issues Automations generic-webhook secret (CF sends it in the
+# cf-webhook-auth header -> POST /api/ingest/issues; missing -> 503 fail-closed).
+# Same value is entered as the webhook destination's secret in the CF dashboard.
+ISSUES_INGEST_TOKEN=
+# Windmill (rn4g-1) remediation-lane Bearer token (/api/windmill/*; missing ->
+# 503 fail-closed). Contract: docs/WINDMILL-CONTRACT.md. Also lives in the
+# rn4g-1 Windmill variable store.
+WINDMILL_TOKEN=

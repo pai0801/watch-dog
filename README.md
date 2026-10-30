@@ -4,14 +4,15 @@ A serverless, passive monitoring system ("Dead Man's Switch") for distributed mi
 
 > **Production**: `https://watch-dog.helperp.workers.dev` · public status feed: [`/api/status`](https://watch-dog.helperp.workers.dev/api/status)
 
-## 兩大功能
+## 三大功能
 
 | 功能 | 一句話 | 方向 |
 |---|---|---|
 | **① 服務監控**（Dead Man's Switch） | 你的服務定期上報 pulse；**pulse 停了 = 服務死了** → Slack（可選 Email）警報 | 你 → watch-dog |
 | **② Cron 觸發**（排程樞紐） | 你註冊一個回呼 URL；watch-dog 每分鐘 tick 到期就 POST **叫醒你**——不用自己的 CF cron slot | watch-dog → 你 |
+| **③ Issues 收集器**（異常分診） | CF Workers Issues 偵測到你的 Worker 異常 → webhook 推進 watch-dog 分診 → Windmill（rn4g-1）認領自動處置；[待處理觀察頁](https://watch-dog.helperp.workers.dev/issues)一目瞭然 | CF → watch-dog → Windmill |
 
-兩個功能共用同一個 project token、同一套註冊模型（project 由操作者建立，閉合註冊）。可以只用其中一個，也可以搭配使用（例：cron 觸發的任務跑完順手發 pulse，就是一個自帶死亡偵測的排程系統）。
+①② 共用同一個 project token、同一套註冊模型（project 由操作者建立，閉合註冊）。③ 對受監專案**零代碼**——在 CF dashboard 設一次 Automations webhook 即接入（見下節）。可以只挑著用，也可以搭配（例：cron 觸發的任務跑完順手發 pulse，就是一個自帶死亡偵測的排程系統）。
 
 ## 客戶端接入（Client Onboarding）
 
@@ -175,6 +176,36 @@ async function handleTick(request, storage) {
 完整契約（錯誤碼、失敗語義細節、Python 範例）見 `docs/client-guide.md`；
 操作者可隨時用 Basic Auth 看 `GET /admin/schedules` 唯讀總覽（secret 永不回傳）。
 
+### 6.（可選）Issues 異常收集——你的 Worker 異常 log 自動進分診佇列
+
+**你的專案只要滿足一個條件：它是 Cloudflare Worker。零代碼、零 token。**
+
+CF [Workers Issues](https://developers.cloudflare.com/workers/observability/issues/) 自動捕捉
+uncaught exception / 5xx / `console.error` 並聚合。接入 watch-dog 只需**操作者在 CF dashboard
+設定一次**（每個 Worker 一次）：
+
+1. 該 Worker → **Issues** 分頁 → **Automations** → **Add automation**
+   （觸發條件建議：occurrence threshold 或 recurrence-after-inactivity 擇一）
+2. 目的地選 **Generic Webhook**：
+   - URL：`https://watch-dog.helperp.workers.dev/api/ingest/issues`
+   - Secret：向操作者索取（= watch-dog 的 `ISSUES_INGEST_TOKEN`；CF 會以
+     `cf-webhook-auth` header 送達）
+3. 完成。之後 issue 開啟/解決事件自動流入 watch-dog：
+   - **開啟** → Slack 警報（若該專案在 maintenance 則靜音——部署窗口不吵）+ 進 Windmill 處置佇列
+   - **解決** → 自動關單 + recovery 通知
+   - **復發** → 新 episode 重進佇列（嘗試次數歸零）
+
+人類看的入口：[**待處理 log 觀察頁**](https://watch-dog.helperp.workers.dev/issues)——
+每筆 issue 的狀態（待處理/處理中/已修復/需人工/CF 已解決）、Windmill 認領標記（⚓ + 時間）、
+嘗試次數（n/2）、script 與專案映射，30 秒自動刷新。
+
+處置側（Windmill on rn4g-1）遵守的契約：**[docs/WINDMILL-CONTRACT.md](docs/WINDMILL-CONTRACT.md)**
+——poll/claim/write-back 端點、三級處置權限（唯讀診斷與安全動作全自動；prod 部署只開 PR 等人工
+merge）、自動處理上限 2 次即 escalate、每輪 poll 附 heartbeat（Windmill 自己也被 fail-dead 監控）。
+
+> **操作者備註**：script → project 映射（`issue_map` 表）決定 claim 時自動進 maintenance 的
+> 專案；未映射的 issue 照樣收進觀察頁與 Windmill 佇列，只是不聯動 maintenance。
+
 ## Features
 
 - **Passive Monitoring**: Services report heartbeats via simple HTTP API — silence means dead
@@ -265,6 +296,12 @@ scripts/enroll.sh my-service 我的服務
 | `/api/schedules?project_id=` | GET | project token | 列出自己的排程（不含 secret） |
 | `/api/schedules/:id?project_id=` | GET / PUT / DELETE | project token | 查詢 / 修改 / 刪除自己的排程 |
 | `/api/cf-usage` | GET | Bearer `CF_USAGE_API_TOKEN` | 唯讀 CF 用量查詢（見下節） |
+| `/api/ingest/issues` | POST | `cf-webhook-auth` header（= `ISSUES_INGEST_TOKEN`） | CF Issues Automations webhook 接收端（見 §6） |
+| `/api/windmill/issues` | GET | Bearer `WINDMILL_TOKEN` | Windmill 拉可認領 issues |
+| `/api/windmill/heartbeat` | POST | Bearer `WINDMILL_TOKEN` | Windmill 每輪 poll 心跳（停跳 5 分鐘 → DEAD 警報） |
+| `/api/windmill/issues/:id/claim` | POST | Bearer `WINDMILL_TOKEN` | Windmill 認領（映射專案自動 maintenance 45min） |
+| `/api/windmill/issues/:id/feedback` | POST | Bearer `WINDMILL_TOKEN` | Windmill 回寫 done/failed/skipped |
+| `/issues` | GET | public | 待處理 log 觀察頁（唯讀） |
 | `/admin` | GET | Basic Auth (`ADMIN_ACCOUNT`/`ADMIN_PASSWORD`) | Admin dashboard |
 | `/admin/schedules` | GET | Basic Auth | 排程樞紐唯讀總覽（secret 永不回傳） |
 

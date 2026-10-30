@@ -233,3 +233,24 @@ CF cron tick 本身有延遲。需要「每 10 分鐘跑一次、誤差別太大
 - `alert_after_failures`：0（預設 off）或 N——連敗**跨越** N 時 watch-dog 發 Slack
   warning 給操作者；成功歸零。**沒有自動暫停**——你的排程永遠不會被 hub 靜默停掉。
 - `paused`：你自己設的維護窗（PUT `{"paused":1}`），回復同樣自助。
+
+## Issues 異常收集（CF Worker 專案零代碼接入）
+
+你的專案是 Cloudflare Worker 的話，異常（uncaught exception / 5xx /
+`console.error`）由 CF Workers Issues 自動捕捉聚合；操作者在 CF dashboard
+設一次 Generic Webhook Automations 指向 watch-dog 即完成接入（步驟見
+[README §6](../README.md#6可選issues-異常收集你的-worker-異常-log-自動進分診佇列)）。
+之後：issue 開啟 → Slack 警報 + 進 Windmill 自動處置佇列；解決 → 自動關單；
+復發 → 新 episode 重進佇列。人類入口：`/issues` 待處理觀察頁。
+
+### 可貼進你專案 README/CLAUDE.md 的指示塊
+
+```markdown
+> **異常 log 去向**：本服務是 Cloudflare Worker——uncaught exception / 5xx /
+> console.error 由 CF Workers Issues 捕捉，經 watch-dog 收集分診
+> （https://watch-dog.helperp.workers.dev，觀察頁 /issues），
+> 由 Windmill（rn4g-1）依 docs/WINDMILL-CONTRACT.md 契約自動處置
+> （prod 部署級動作只開 PR，人工 merge）。
+> 接入/設定問題見 watch-dog repo README「Issues 收集器」段（SSoT）。
+> 想讓特定錯誤進分診佇列：直接 console.error（或讓它拋出）即可，不必自建 log 管道。
+```
