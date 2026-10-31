@@ -289,3 +289,8 @@ curl -X POST https://watch-dog.helperp.workers.dev/api/issues/report \
    拿不準就用 `warning`。
 3. **handled error 要先有降級動作才掛號**：fallback 成功且無後果的，`console.error` 就夠；
    有後果（功能受損/需人工補救）才掛號，message 寫清楚後果是什麼。
+4. **毒丸/隔離類判準**（email-king 實戰淬煉，2026-10-31）：**永久丟失外部進來的
+   資料 → 掛**（客人回信、unsubscribe 事件、進件資料——資料本體不見了）；
+   **只丟內部統計/analytics 面 → 不掛**（open/click 事件、指標漏記——不影響資料本體）。
+5. **寧缺勿濫**：分級誠實優先於覆蓋數——一個 repo 沒有符合的點就 0 接點，
+   不要為了「有接」硬撒（ek-collector 就是 0 接點的正確案例）。
