@@ -297,6 +297,7 @@ scripts/enroll.sh my-service 我的服務
 | `/api/schedules/:id?project_id=` | GET / PUT / DELETE | project token | 查詢 / 修改 / 刪除自己的排程 |
 | `/api/cf-usage` | GET | Bearer `CF_USAGE_API_TOKEN` | 唯讀 CF 用量查詢（見下節） |
 | `/api/ingest/issues` | POST | `cf-webhook-auth` header（= `ISSUES_INGEST_TOKEN`） | CF Issues Automations webhook 接收端（見 §6） |
+| `/api/issues/report` | POST | project token | **掛號 API**：服務自評分級的主動上報（handled error／業務異常；分級指引見 `docs/client-guide.md`）——與 CF Issues 同佇列同 Windmill 車道 |
 | `/api/windmill/issues` | GET | Bearer `WINDMILL_TOKEN` | Windmill 拉可認領 issues |
 | `/api/windmill/heartbeat` | POST | Bearer `WINDMILL_TOKEN` | Windmill 每輪 poll 心跳（停跳 5 分鐘 → DEAD 警報） |
 | `/api/windmill/issues/:id/claim` | POST | Bearer `WINDMILL_TOKEN` | Windmill 認領（映射專案自動 maintenance 45min） |

@@ -99,3 +99,9 @@ schedule (every 1m)
   └──────────────────┘    └─failed(attempt=2)─▶ escalated
 任何狀態 ──cf resolved──▶ resolved
 ```
+
+> **2026-10-31 補註（WATCHDOG-016）**：佇列裡現在有兩種來源——`cf-issues`（CF Issues
+> webhook）與 `report`（服務自評掛號 `POST /api/issues/report`）。對 Windmill 完全同構：
+> 同一個狀態機、同樣 claim/feedback。report 源 issue 的 `project_id` 必有值（token 反查），
+> 不會出現 unmapped；`payload` 是 `{source:'report', severity, title, message, check_name}`。
+> severity=critical 的 report 已走過 critical+email 通知，Windmill 處置時優先看它。

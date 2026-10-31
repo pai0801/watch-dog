@@ -307,7 +307,7 @@ export interface IssueEvent {
   id: number;
   issue_id: number;
   event: string;
-  actor: 'cf-issues' | 'windmill' | 'fuse';
+  actor: 'cf-issues' | 'windmill' | 'fuse' | 'report';
   detail: string | null;
   created_at: number;
 }

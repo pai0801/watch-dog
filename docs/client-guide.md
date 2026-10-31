@@ -254,3 +254,38 @@ CF cron tick 本身有延遲。需要「每 10 分鐘跑一次、誤差別太大
 > 接入/設定問題見 watch-dog repo README「Issues 收集器」段（SSoT）。
 > 想讓特定錯誤進分診佇列：直接 console.error（或讓它拋出）即可，不必自建 log 管道。
 ```
+
+## Log 分級與掛號指引（WATCHDOG-016，2026-10-31 起）
+
+你的服務有四種把「值得處理的 log」送進分診佇列的方式，**先分級、再選通道**：
+
+| 情境 | 通道 | 動作 |
+|---|---|---|
+| 未處理錯誤（該拋就拋） | CF Issues（來源 A） | 讓它拋——CF 自動捕捉，零代碼（需 operator 設過 Automations webhook） |
+| 錯誤被接住但該記錄 | CF Issues（來源 A） | `console.error(err)`——CF 抓 |
+| **Handled error 有降級後果**（fallback 回 200 但功能受損） | **掛號 API（來源 B）** | 見下方 |
+| **業務異常**（回 200 但行為不對：漏單、資料未寫入、上游持續失敗） | **掛號 API（來源 B）** | 見下方 |
+| 純 info / 偵錯訊息 | 不進 watch-dog | 留在自己的 logs |
+
+### 掛號 API（來源 B：服務自評分級的主動上報）
+
+```bash
+curl -X POST https://watch-dog.helperp.workers.dev/api/issues/report \
+  -H "Authorization: Bearer $WATCHDOG_TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"上游金流 timeout，已降級為人工確認","severity":"warning","fingerprint":"my-service:payment-timeout","check_name":"payment","message":"第 3 次重試後放棄，order_id=..."}' --max-time 5
+```
+
+- `severity`：`warning`（預設，進 warning 頻道）｜`critical`（進 critical 頻道＋email——留給「客人受損/資料不一致」級）
+- `fingerprint`：**去重鍵，服務端自訂**。同一 fingerprint 重複掛號會被吸收（不重警報、不開新單）；
+  resolved 之後同鍵再掛 = 復發，自動開新 episode 重進佇列。缺省 = `report:{project_id}:{title}`
+- `check_name`（選填）：服務內的子系統名，診斷關聯用
+- 掛進去的 issue 與 CF Issues 同一個佇列：Windmill 認領（⚓）→ 分級處置 → 觀察頁 `/issues` 可見
+
+### 服務端紀律（[MUST]）
+
+1. **先聚合再掛號**：同款錯誤一天噴 300 次，服務端自己 throttle（如同款 5 分鐘最多掛一次），
+   不要 raw 轟——watch-dog 會去重，但濫用會洗版觀察頁的 last_seen 與 audit trail。
+2. **分級誠實**：`critical` 是「現在有東西壞了需要人看」，不是「這個 log 我覺得重要」。
+   拿不準就用 `warning`。
+3. **handled error 要先有降級動作才掛號**：fallback 成功且無後果的，`console.error` 就夠；
+   有後果（功能受損/需人工補救）才掛號，message 寫清楚後果是什麼。

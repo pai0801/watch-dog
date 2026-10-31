@@ -126,7 +126,7 @@ export function parseCfWebhook(raw: unknown): IngestedIssue | null {
 
 /** —— 事件史 helper —— */
 
-const logEvent = (db: D1Database, issueId: number, event: string, actor: 'cf-issues' | 'windmill' | 'fuse', detail: Record<string, unknown>) =>
+const logEvent = (db: D1Database, issueId: number, event: string, actor: 'cf-issues' | 'windmill' | 'fuse' | 'report', detail: Record<string, unknown>) =>
   db
     .prepare('INSERT INTO issue_events (issue_id, event, actor, detail, created_at) VALUES (?, ?, ?, ?, ?)')
     .bind(issueId, event, actor, JSON.stringify(detail).slice(0, DETAIL_MAX), Math.floor(Date.now() / 1000))
@@ -287,10 +287,127 @@ export async function ingestIssue(db: D1Database, ing: IngestedIssue): Promise<I
   return { issueId: existing.id, changed: false, state: existing.state };
 }
 
-/** —— 任務迴路：Windmill pull / claim / feedback —— */
+/** —— 來源 B：服務自評分級的主動掛號（WATCHDOG-016，2026-10-31） ——
+ *
+ * CF Issues（來源 A）的三盲區由這條通道補：handled error（接住降級回 200）、
+ * 業務異常（回 200 但行為不對）、服務級高頻/低頻判斷。與來源 A 同一個
+ * 狀態機、同一個 Windmill 車道、同一個觀察頁；audit trail 靠 actor='report'
+ * 區分（不加 schema 欄位）。
+ *
+ * 分級責任在服務端（指引見 docs/client-guide.md）：什麼讓它拋（CF 抓）、
+ * 什麼 console.error（CF 抓）、什麼掛號（handled+業務異常）、什麼不上報。
+ * 服務端必須先聚合再掛號——同款錯誤自 throttle，不 raw 轟（重複掛號在
+ * 這裡被 fingerprint 去重吸收，但濫用仍會洗版觀察頁 last_seen）。
+ */
+
+export interface ReportIssueInput {
+  /** 問題標題（必填，≤500） */
+  title: string;
+  /** warning（預設）→ warning 頻道；critical → critical 頻道＋email */
+  severity?: 'warning' | 'critical';
+  /** 服務自訂去重鍵（≤200）；缺省 = report:{project_id}:{title} */
+  fingerprint?: string;
+  /** 詳情（截 2000，進 audit 與 payload） */
+  message?: string;
+  /** 服務內的 check 名（選填，診斷關聯用） */
+  checkName?: string;
+}
+
+/**
+ * 掛號一筆服務自評異常。語義與 ingestIssue 的 triggered 路徑同構：
+ * 新指紋 → open＋警報（maintenance 靜音同構）；重複 → 去重不重警；
+ * resolved/done 後再掛 → regression 開新 episode（attempt 歸零）；
+ * escalated → 維持人工狀態不再打擾。
+ */
+export async function reportIssue(
+  db: D1Database,
+  project: Project,
+  input: ReportIssueInput
+): Promise<IngestResult> {
+  const now = Math.floor(Date.now() / 1000);
+  const title = input.title.slice(0, 500);
+  const severity = input.severity === 'critical' ? 'critical' : 'warning';
+  const message = (input.message ?? '').slice(0, 2000);
+  const fingerprint = (input.fingerprint ?? `report:${project.id}:${title}`).slice(0, 200);
+  const payloadJson = JSON.stringify({
+    source: 'report',
+    severity,
+    title,
+    message,
+    check_name: input.checkName ?? null,
+    project_id: project.id,
+  }).slice(0, PAYLOAD_MAX);
+
+  const existing = await db
+    .prepare('SELECT * FROM issues WHERE fingerprint = ?')
+    .bind(fingerprint)
+    .first<Issue>();
+
+  const alerted = async (issue: Issue, level: 'warning' | 'critical') => {
+    if (await inMaintenance(db, issue.project_id)) return;
+    await sendIssueAlert(db, {
+      issue,
+      level,
+      title: level === 'critical' ? '服務掛號 critical 異常' : '服務掛號 warning 異常',
+      message: `${title}${message ? ` — ${message}` : ''}`,
+      emailWorthy: level === 'critical' || undefined,
+    });
+    await db.prepare('UPDATE issues SET alerted = 1 WHERE id = ?').bind(issue.id).run();
+  };
+
+  if (!existing) {
+    const res = await db
+      .prepare(`
+        INSERT INTO issues (
+          fingerprint, account_id, script_name, project_id, title, alert_type,
+          state, attempt_count, alerted, last_event, payload, first_seen, last_seen
+        )
+        VALUES (?, NULL, ?, ?, ?, 'service_report', 'open', 0, 0, 'triggered', ?, ?, ?)
+      `)
+      .bind(fingerprint, input.checkName ?? null, project.id, title, payloadJson, now, now)
+      .run();
+    const issueId = res.meta.last_row_id;
+    const fresh = await getIssue(db, issueId);
+    if (fresh) await alerted(fresh, severity);
+    await logEvent(db, issueId, 'report', 'report', { severity, title, attempt: 'new' });
+    return { issueId, changed: true, state: 'open' };
+  }
+
+  // 既有 issue：更新詮釋資料（title/message 可能帶最新上下文）
+  await db
+    .prepare('UPDATE issues SET last_seen = ?, title = ?, payload = ? WHERE id = ?')
+    .bind(now, title, payloadJson, existing.id)
+    .run();
+
+  if (existing.state === 'resolved' || existing.state === 'done') {
+    await db
+      .prepare(`
+        UPDATE issues SET state = 'open', attempt_count = 0, alerted = 0,
+          resolved_at = NULL, escalated_at = NULL, claimed_at = NULL, claimed_by = NULL
+        WHERE id = ?
+      `)
+      .bind(existing.id)
+      .run();
+    const updated = await getIssue(db, existing.id);
+    if (updated) await alerted(updated, severity);
+    await logEvent(db, existing.id, 'report-regressed', 'report', { prevState: existing.state, severity });
+    return { issueId: existing.id, changed: true, state: 'open' };
+  }
+
+  if (existing.state === 'escalated') {
+    await logEvent(db, existing.id, 'report', 'report', { note: 'escalated, no-op', prevState: 'escalated' });
+    return { issueId: existing.id, changed: false, state: 'escalated' };
+  }
+
+  // open / claimed 重複掛號——去重吸收，不重警
+  await logEvent(db, existing.id, 'report', 'report', { note: 'dedup', prevState: existing.state, severity });
+  return { issueId: existing.id, changed: false, state: existing.state };
+}
 
 /** Issues available for Windmill: open, plus claims leaked past the lease
  *  (Windmill crash recovery — a claimed issue must never strand forever). */
+/** —— 任務迴路：Windmill pull / claim / feedback —— */
+
 export async function listClaimableIssues(db: D1Database): Promise<Issue[]> {
   const now = Math.floor(Date.now() / 1000);
   const result = await db

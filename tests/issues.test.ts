@@ -318,3 +318,87 @@ describe('GET /issues — 待處理 log 觀察頁', () => {
     expect(html).toContain('Windmill');
   });
 });
+
+describe('POST /api/issues/report — 來源 B：服務自評掛號（WATCHDOG-016）', () => {
+  const REPORT_H = (token: string) => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+  const report = (body: Record<string, unknown>, token = 'tok-report-123456789') =>
+    SELF.fetch(`${BASE}/api/issues/report`, { method: 'POST', headers: REPORT_H(token), body: JSON.stringify(body) });
+
+  beforeEach(async () => {
+    await seedProject({ id: 'svc-r', token: 'tok-report-123456789' });
+  });
+
+  it('401 missing token / 403 wrong token / 400 missing title', async () => {
+    expect((await SELF.fetch(`${BASE}/api/issues/report`, { method: 'POST', body: '{}' })).status).toBe(401);
+    expect((await report({ title: 'x' }, 'wrong-token-123456')).status).toBe(403);
+    const res = await report({});
+    expect(res.status).toBe(400);
+    expect((await report({ title: 'x', severity: 'bogus' })).status).toBe(400);
+  });
+
+  it('掛號 → open + warning 頻道警報 + project 直接映射（免 issue_map）', async () => {
+    const { res, body } = await (async () => {
+      const r = await report({ title: '上游金流 timeout（已降級）', severity: 'warning', check_name: 'payment' });
+      return { res: r, body: (await r.json()) as Record<string, unknown> };
+    })();
+    expect(res.status).toBe(200);
+    expect(body.state).toBe('open');
+    const row = await getIssueRow('report:svc-r:上游金流 timeout（已降級）');
+    expect(row).not.toBeNull();
+    expect(row!['project_id']).toBe('svc-r');
+    expect(row!['alert_type']).toBe('service_report');
+    expect(slackBodies.length).toBe(1);
+    // warning 頻道路由（channel_warning fixture）
+    expect(slackBodies[0]).toContain('服務掛號 warning 異常');
+  });
+
+  it('critical → critical 頻道', async () => {
+    await report({ title: '訂單漏單：付款成功但未建單', severity: 'critical' });
+    expect(slackBodies.length).toBe(1);
+    expect(slackBodies[0]).toContain('服務掛號 critical 異常');
+  });
+
+  it('同 fingerprint 重複掛號 → 去重不重警；自訂 fingerprint 生效', async () => {
+    await report({ title: 'A', fingerprint: 'svc-r:payment-timeout' });
+    const { body } = await (async () => {
+      const r = await report({ title: 'A（更新）', fingerprint: 'svc-r:payment-timeout' });
+      return { body: (await r.json()) as Record<string, unknown> };
+    })();
+    expect(body.changed).toBe(false);
+    expect(slackBodies.length).toBe(1);
+    const count = await DB.prepare('SELECT COUNT(*) AS n FROM issues').first<{ n: number }>();
+    expect(count!.n).toBe(1);
+  });
+
+  it('maintenance 期間靜音；下架後 regression 會再警', async () => {
+    // 掛號一次（警報1）
+    await report({ title: 'B', fingerprint: 'svc-r:b' });
+    expect(slackBodies.length).toBe(1);
+    // 進 maintenance → resolved 後 regression 掛號不警
+    await DB.prepare('UPDATE projects SET maintenance_until = ? WHERE id = ?').bind(nowSec() + 600, 'svc-r').run();
+    await DB.prepare("UPDATE issues SET state = 'resolved' WHERE fingerprint = ?").bind('svc-r:b').run();
+    await report({ title: 'B', fingerprint: 'svc-r:b' });
+    const row = await getIssueRow('svc-r:b');
+    expect(row!['state']).toBe('open'); // 狀態照樣開（新 episode）
+    expect(slackBodies.length).toBe(1); // 但警報被 maintenance 靜音
+    // maintenance 過期後再 resolved→regression → 警報
+    await DB.prepare('UPDATE projects SET maintenance_until = 0 WHERE id = ?').bind('svc-r').run();
+    await DB.prepare("UPDATE issues SET state = 'resolved' WHERE fingerprint = ?").bind('svc-r:b').run();
+    await report({ title: 'B', fingerprint: 'svc-r:b' });
+    expect(slackBodies.length).toBe(2);
+  });
+
+  it('report 源 issue 進 Windmill 車道：claim → feedback 全流程', async () => {
+    await report({ title: 'C', fingerprint: 'svc-r:c' });
+    const row = await getIssueRow('svc-r:c');
+    const id = row!['id'] as number;
+    expect((await windmill('/api/windmill/issues')).body.count).toBe(1);
+    const claim = await windmill(`/api/windmill/issues/${id}/claim`, { method: 'POST' });
+    expect(claim.res.status).toBe(200);
+    const fb = await windmill(`/api/windmill/issues/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ status: 'done', message: 'report-origin e2e' }),
+    });
+    expect(fb.body.state).toBe('done');
+  });
+});

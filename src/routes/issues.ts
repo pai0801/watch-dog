@@ -10,14 +10,15 @@
 // app-wide Basic Auth gate 不得攔住機器對機器端點）。
 
 import { Hono } from 'hono';
-import type { AppBindings, Issue } from '../types';
-import { timingSafeEqual } from '../lib/auth';
+import type { AppBindings, Issue, Project } from '../types';
+import { extractProjectToken, timingSafeEqual } from '../lib/auth';
 import {
   claimIssue,
   feedbackIssue,
   ingestIssue,
   listClaimableIssues,
   parseCfWebhook,
+  reportIssue,
   windmillHeartbeat,
   type FeedbackStatus,
 } from '../services/issues';
@@ -66,6 +67,56 @@ issues.post('/api/ingest/issues', async (c) => {
   } catch (error) {
     console.error('issues ingest error:', error);
     return c.json({ error: 'ingest failed' }, 500);
+  }
+});
+
+// ============================================================================
+// 來源 B — POST /api/issues/report（服務自評分級的主動掛號，WATCHDOG-016）
+// 認證同 /api/pulse：project token（token 即身分，project 由 token 反查）。
+// ============================================================================
+
+issues.post('/api/issues/report', async (c) => {
+  const token = extractProjectToken(c);
+  if (!token) {
+    return c.json({ error: 'Missing Authorization header (use: Authorization: Bearer {token})' }, 401);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json<Record<string, unknown>>();
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400);
+  }
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  if (!title) return c.json({ error: 'Missing required field: title' }, 400);
+  const severity = body.severity;
+  if (severity !== undefined && severity !== 'warning' && severity !== 'critical') {
+    return c.json({ error: "severity must be 'warning' | 'critical'" }, 400);
+  }
+
+  const project = await c.env.DB
+    .prepare('SELECT * FROM projects WHERE token = ?')
+    .bind(token)
+    .first<Project>();
+  if (!project) return c.json({ error: 'Invalid token' }, 403);
+
+  try {
+    const result = await reportIssue(c.env.DB, project, {
+      title,
+      severity,
+      fingerprint: typeof body.fingerprint === 'string' && body.fingerprint.trim() ? body.fingerprint.trim() : undefined,
+      message: typeof body.message === 'string' ? body.message : undefined,
+      checkName: typeof body.check_name === 'string' ? body.check_name : undefined,
+    });
+    return c.json({
+      ok: true,
+      issue_id: result.issueId,
+      changed: result.changed,
+      state: result.state,
+    });
+  } catch (error) {
+    console.error('issues report error:', error);
+    return c.json({ error: 'report failed' }, 500);
   }
 });
 

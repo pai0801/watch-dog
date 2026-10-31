@@ -7,7 +7,41 @@ import { findDeadChecks, processCheckResult } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
 import { sendOpsControlHeartbeat } from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
-import { cleanupOldIssues } from './services/issues';
+import { cleanupOldIssues, reportIssue } from './services/issues';
+import type { Project } from './types';
+
+/**
+ * 引擎路徑錯誤 → 掛號進分診佇列（self-dogfood，WATCHDOG-016）。各引擎
+ * catch 區塊本來只 console.error（靜默降級）；現在「偵測被跳過」這件事
+ * 本身成為一筆可處置的 issue。fingerprint 固定 → 重複錯誤去重吸收，
+ * 不會自我轟炸。
+ *
+ * 獨立 try/catch：掛號依賴 DB（可能與原錯誤同根因）＋專案列必須存在——
+ * 掛號失敗只再 console.error，絕不在 catch 區塊裡二次拋出。
+ */
+const reportEngineError = async (
+  env: AppBindings,
+  fingerprint: string,
+  what: string,
+  e: unknown,
+  severity: 'warning' | 'critical'
+): Promise<void> => {
+  try {
+    const project = await env.DB
+      .prepare('SELECT * FROM projects WHERE id = ?')
+      .bind('watch-dog')
+      .first<Project>();
+    if (!project) return; // 專案列不存在（fresh DB）→ 只留 console.error
+    await reportIssue(env.DB, project, {
+      title: `${what}路徑錯誤（降級中）`,
+      severity,
+      fingerprint,
+      message: String(e).slice(0, 2000),
+    });
+  } catch (err) {
+    console.error(`report engine error failed (${fingerprint}):`, err);
+  }
+};
 
 /**
  * One full engine pass — shared verbatim by the CF cron trigger and the
@@ -108,6 +142,9 @@ export async function runEngineTick(
         }
       } catch (e) {
         console.error('Cron error:', e);
+        // Self-dogfood（WATCHDOG-016）：fail-dead 引擎出錯 = 偵測被跳過，
+        // 是「handled error 有降級後果」的教科書案例 → 掛號進分診佇列。
+        await reportEngineError(env, 'watch-dog:engine-faildead', 'fail-dead 引擎', e, 'critical');
       }
 
       // ===== CF account usage poll (every 30 min, gated above) =====
@@ -126,6 +163,7 @@ export async function runEngineTick(
           }
         } catch (e) {
           console.error('CF usage poll error:', e);
+          await reportEngineError(env, 'watch-dog:engine-usage', 'CF 用量輪詢', e, 'warning');
         }
       }
 
@@ -139,6 +177,7 @@ export async function runEngineTick(
         await runDueSchedules(env.DB, now, scheduledTimeMs);
       } catch (e) {
         console.error('Scheduler hub error:', e);
+        await reportEngineError(env, 'watch-dog:engine-scheduler', '排程樞紐', e, 'warning');
       }
 
       // ===== Cross-monitor: heartbeat to ops-control (independent account) =====
@@ -150,6 +189,7 @@ export async function runEngineTick(
         await sendOpsControlHeartbeat(env, via);
       } catch (e) {
         console.error('Cross-monitor heartbeat error:', e);
+        await reportEngineError(env, 'watch-dog:engine-crossmonitor', '跨監控心跳', e, 'warning');
       }
 }
 
