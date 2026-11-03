@@ -63,6 +63,7 @@
 3. `tests/logic.test.ts` — T1/T2/T3 + 修改既有「healthy check writes a log row」語意。
 4. `tests/cron.test.ts` — T5。
 5. `FIX-LOG.md` + `docs/testing.md`（D28 Proposed 段）。
+   - 收斂註記（2026-11-03 收尾）：本 repo 無 D28 guard（guards 僅 §A–§M + D18–D21），自動化測試文件依 repo 慣例記於 FIX-LOG 驗證欄；testing.md 落地為 Log Viewer 段的採樣預期行為清單（reviewer MEDIUM #1 收斂）。
 
 ## 不做（scope 外，另卡處理）
 

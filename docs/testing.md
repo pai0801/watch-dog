@@ -47,6 +47,11 @@ Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.
 - [ ] Delete button shows confirmation dialog with check name
 - [ ] After deletion, page redirects to /admin
 
+## Log Viewer (per-check 日誌)
+- [ ] ok 列為**小時採樣**（2026-11-03 WATCHDOG-020）：穩態 ok 每 check 約每小時 1 筆，不是每個 pulse 一筆——稀疏是預期行為，不是日誌丟失
+- [ ] error / dead / 恢復（非 ok→ok 轉移）列不受採樣：每筆都在
+- [ ] 點開 check 日誌仍按時間倒序顯示
+
 ## Alpine.js Functionality
 - [ ] Tab switching uses Alpine.js state (x-show)
 - [ ] Project filter uses x-model for two-way binding
