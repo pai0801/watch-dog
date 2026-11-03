@@ -3,7 +3,7 @@
 
 import type { ScheduledEvent } from '@cloudflare/workers-types';
 import type { AppBindings, Check } from './types';
-import { findDeadChecks, processCheckResult } from './services/logic';
+import { findDeadChecks, processCheckResult, shouldWriteOkLog } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
 import { sendOpsControlHeartbeat } from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
@@ -90,14 +90,19 @@ export async function runEngineTick(
             .bind(now, selfCheckId)
             .run();
 
-          // Log the self-pulse
-          await env.DB
-            .prepare(`
-              INSERT INTO logs (check_id, status, latency, message, created_at)
-              VALUES (?, 'ok', 0, ?, ?)
-            `)
-            .bind(selfCheckId, 'Self-monitoring pulse via Cron', now)
-            .run();
+          // Log the self-pulse — sampled, not every minute (2026-11-03 D1
+          // write-quota slimming; see shouldWriteOkLog in services/logic.ts).
+          // The checks-row update above is unsampled: self-health detection
+          // must keep beating every tick. 1,440 log rows/day -> ~24/day.
+          if (shouldWriteOkLog(selfCheck, now)) {
+            await env.DB
+              .prepare(`
+                INSERT INTO logs (check_id, status, latency, message, created_at)
+                VALUES (?, 'ok', 0, ?, ?)
+              `)
+              .bind(selfCheckId, 'Self-monitoring pulse via Cron', now)
+              .run();
+          }
         }
 
         // ===== Find dead checks from other projects =====

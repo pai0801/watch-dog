@@ -36,6 +36,25 @@ const claimAlertSlot = (db: D1Database, check: Check, now: number) =>
 const ESCALATION_WINDOW_SECONDS = 900;
 const ESCALATION_THRESHOLD = 3;
 
+// ===== Ok-pulse log sampling (2026-11-03 quota incident) =====
+// The logs table used to take one row per ok pulse (~32k rows/day across all
+// checks) — the single largest writer on the shared-account D1 write quota
+// (100k rows/day, account-level, post-facto hard-fail; 2026-11-02 actually
+// exceeded it at 101,356). Detection NEVER reads these rows (fail-dead uses
+// checks.last_seen; escalation counts error rows only), so steady-state ok
+// rows are admin-viewer convenience, not evidence — the "unconditional put
+// every minute" anti-pattern (quota discipline §3), never audited until the
+// quota bit. Sampling rule, deterministic and stateless:
+//   - non-ok -> ok (recovery): ALWAYS write — this is the transition
+//     evidence an operator will want. (The CAS-lost racing path in
+//     processCheckResult logs unconditionally for the same reason — it is
+//     only reachable during a live incident.)
+//   - steady-state ok: write only when the pulse crosses an hour boundary
+//     since the previous pulse's last_seen (~1 row/check/hour for the admin
+//     viewer). Zero schema change, zero extra reads, no new state.
+export const shouldWriteOkLog = (prev: Pick<Check, 'status' | 'last_seen'>, now: number): boolean =>
+  prev.status !== 'ok' || Math.floor(now / 3600) !== Math.floor(prev.last_seen / 3600);
+
 /** Count error log rows for a check inside the escalation window. */
 const countRecentErrors = (db: D1Database, checkId: string, now: number) =>
   db
@@ -105,6 +124,10 @@ export async function processCheckResult(
         )
         .bind(now, message, check.id)
         .run();
+      // Unsampled on purpose: this path is only reachable while a failure
+      // write raced us (failure_count moved since our snapshot) — i.e. during
+      // a live incident. Race-path pulses are exactly the evidence an
+      // operator will want, and steady state never reaches this branch.
       if ((heartbeat.meta.changes ?? 0) === 1) {
         await writeLog();
       }
@@ -146,7 +169,13 @@ export async function processCheckResult(
       sendRecovery = (claim.meta.changes ?? 0) === 1;
     }
 
-    await writeLog();
+    // Ok-pulse log sampling (see shouldWriteOkLog): recovery transitions
+    // (snapshot status was error/dead) always log; steady-state ok pulses
+    // log once per hour boundary. The checks-row update above is the
+    // detection write and is NOT sampled — fail-dead semantics untouched.
+    if (shouldWriteOkLog(check, now)) {
+      await writeLog();
+    }
 
     if (sendRecovery || resolveEpisode) {
       await dispatchAlert(db, {

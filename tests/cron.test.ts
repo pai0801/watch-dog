@@ -106,6 +106,33 @@ describe('scheduled handler', () => {
     expect(self?.last_seen).toBeGreaterThanOrEqual(nowSec() - 5);
   });
 
+  it('self-pulse log is hour-sampled: same-hour tick writes no log row, hour-crossing writes one (2026-11-03)', async () => {
+    await seedProject({ id: 'watch-dog', token: '', display_name: 'Watch-Dog Sentinel' });
+    const countSelfLogs = () =>
+      DB.prepare("SELECT COUNT(*) AS n FROM logs WHERE check_id = 'watch-dog:self-health'")
+        .first<{ n: number }>()
+        .then((r) => r?.n ?? 0);
+
+    // Steady state: self check healthy, previous pulse this same hour.
+    await seedCheck('watch-dog', {
+      id: 'watch-dog:self-health',
+      name: 'self-health',
+      last_seen: nowSec(),
+      status: 'ok',
+    });
+    await runScheduled();
+    expect(await countSelfLogs()).toBe(0); // sampled away
+    // The detection write is unsampled — heartbeat still advanced.
+    expect((await getCheck('watch-dog:self-health'))?.last_seen).toBeGreaterThanOrEqual(nowSec() - 5);
+
+    // Hour crossing: previous pulse an hour ago -> exactly one log row.
+    await DB.prepare('UPDATE checks SET last_seen = ? WHERE id = ?')
+      .bind(nowSec() - 3600, 'watch-dog:self-health')
+      .run();
+    await runScheduled();
+    expect(await countSelfLogs()).toBe(1);
+  });
+
   it('deletes logs older than 7 days (hourly gate: top-of-hour firing)', async () => {
     await seedProject({ id: 'svc', token: 'tok-1234567890' });
     await seedCheck('svc', { id: 'svc:health', name: 'health' });

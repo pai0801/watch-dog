@@ -39,17 +39,50 @@ beforeEach(async () => {
 });
 
 describe('processCheckResult — ok transitions', () => {
-  it('keeps a healthy check healthy and writes a log row', async () => {
+  it('keeps a healthy check healthy; same-hour ok pulse is log-sampled away (2026-11-03 quota slimming)', async () => {
     const project = await seedProject();
-    const check = await seedCheck(project.id);
+    const check = await seedCheck(project.id); // last_seen = now (same hour)
 
     await processCheckResult(DB, check, project, 'ok', 'Pulse received');
 
     const updated = await getCheck(check.id);
     expect(updated?.status).toBe('ok');
     expect(updated?.failure_count).toBe(0);
-    expect(await countLogs(check.id)).toBe(1);
+    // Detection write is unsampled — the heartbeat advanced...
+    expect(updated?.last_seen).toBeGreaterThanOrEqual(check.last_seen);
+    // ...but the ok log row is not written (same hour bucket as prev pulse).
+    expect(await countLogs(check.id)).toBe(0);
     expect(slackCalls.length).toBe(0); // no alert for a plain OK pulse
+  });
+
+  it('writes an ok log row when the pulse crosses an hour boundary', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { last_seen: nowSec() - 3600 });
+
+    await processCheckResult(DB, check, project, 'ok', 'Pulse received');
+
+    expect(await countLogs(check.id)).toBe(1);
+  });
+
+  it('writes the first pulse of a freshly registered check (last_seen=0 crosses the bucket)', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { last_seen: 0 });
+
+    await processCheckResult(DB, check, project, 'ok', 'first pulse');
+
+    expect(await countLogs(check.id)).toBe(1);
+  });
+
+  it('always logs a recovery pulse regardless of hour bucket (transition evidence)', async () => {
+    const project = await seedProject();
+    const check = await seedCheck(project.id, { status: 'error', failure_count: 3 });
+
+    await processCheckResult(DB, check, project, 'ok', 'recovered');
+
+    const updated = await getCheck(check.id);
+    expect(updated?.status).toBe('ok');
+    expect(await countLogs(check.id)).toBe(1);
+    expect(slackCalls.length).toBe(1); // recovery alert fires
   });
 
   it('sends a recovery alert when a threshold-failed check goes ok', async () => {

@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-11-03] ok-pulse log 小時採樣——D1 寫入額度結構性瘦身（~30k rows/day）
+
+**目標**：plan `docs/plans/2026-11-03-oklog-sampling.md`（tier major 全 gate；看板 WATCHDOG-020）。終結 helperp 帳號 D1 寫入額度天天 60-100% 的結構性燒量：logs 表 ok-pulse 無條件寫入 ~32k rows/day（6,841 runs/day）是帳號最大單一寫入戶，2026-11-02 帳號實際 101,356/100k 爆表（alliance-member 18:34 單分鐘 33.8k seed 突發疊加 baseline）。ok log 列無偵測功能（fail-dead 只讀 `checks.last_seen`、escalation 只數 error rows、恢復判定用 `checks.status`）——「無條件每分鐘 put」反模式（額度紀律 §3），從未被審計。
+**原因**：非 bug——設計債。歷史預設每 pulse 寫 log，額度是帳號級後爆型，哨兵自身簿記吃掉 30% 額度讓姊妹專案的合法批次寫入（backfill/seed）輕易推爆全帳號。
+**預期結果**：`shouldWriteOkLog(prev, now)` 純函數（logic.ts，唯一實作）：非 ok→ok 恢復必寫（轉移證據）；穩態 ok 只在 `floor(now/3600) ≠ floor(prev.last_seen/3600)` 跨小時邊界寫（~1 列/check/小時）；零 schema 變更、零額外讀取、確定性。CAS-lost 競態路徑**不採樣**（僅活體事故期間可達，race 證據無價、穩態零成本）。cron.ts 自我脈搏 log 同 helper gate（1,440→~24/day）；`checks` 表更新（偵測本體）兩處皆不採樣——不變式①零接觸。預期帳號寫入 baseline 73k→~42k/day。admin 檢視器 ok 列變稀疏（每小時 1 筆）——已知情取捨。
+**範圍**：`src/services/logic.ts`（helper+ok 路徑 gate）、`src/cron.ts`（自我脈搏 gate）、`tests/logic.test.ts`（+3 測試、1 測試語意更新）、`tests/cron.test.ts`（+1 測試）、`docs/plans/2026-11-03-oklog-sampling.md`、本檔。
+**驗證**：`make ci` 全綠（tsc ✓ / ESLint ✓ / app pool 253/253 ✓〔修改前 249，+4 淨增〕/ guards 22/22 ✓ / §L ✓ / §M 僅既有 legacy warns）。新測試覆蓋：穩態同小時 ok pulse→0 log 列+last_seen 前進、跨小時→1 列、last_seen=0 首 pulse→1 列、error→ok 恢復必寫+recovery alert、cron 自我脈搏同小時 0 列/跨小時 1 列；既有 44 項 logic+cron 不變式測試全過（race path、escalation、silence、CAS 競態語意不變）。部署後驗收：24h helperp `d1_rows_written` < 50k（cf_usage_state 實測）。
+
 ### [2026-10-23] cross-monitor fetch-path piggyback——免疫 CF cron dispatch 抖動誤報
 
 **目標**：修 ops-control 連環誤報「watch-dog 離線 CRITICAL」。鑑識（ops-control D1 ↔ watch-dog self-pulse 雙庫交叉時間戳＋wrangler tail 直擊）確診機制鏈：CF scheduled dispatch 常態晚 ~50s（self-pulse 秒數直方圖 10-19 起 92-99% 落 :45-:55），2026-10-23 UTC 04:00 起 APAC 尖峰抖動把 dispatch 推過分鐘邊界，at-most-once-per-minute 合併丟拍 → heartbeat gap 120-500s → ops-control 全域 120s 門檻誤報。
