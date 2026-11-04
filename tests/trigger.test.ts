@@ -95,4 +95,27 @@ describe('POST /api/engine/trigger', () => {
     expect(body.skipped).toBe(true);
     expect(body.lastTickAgoSec).toBeLessThan(30);
   });
+
+  it('cadence gate (OPSCONT-006): engine runs but sends no heartbeat when a send stamped < 5 min ago', async () => {
+    await seedProject({ id: 'svc', token: 'tok-1234567890' });
+    await seedSchedule('svc', { next_run_at: nowSec() + 3600 });
+    await seedProject({ id: 'watch-dog', token: 'tok-selfhealth' });
+    await seedCheck('watch-dog', { id: 'watch-dog:self-health', name: 'self-health', last_seen: nowSec() - 120 });
+
+    // 上一拍 engine 心跳剛送出（蓋章 = 現在）→ 本 tick 引擎照跑、心跳不出
+    await DB.prepare(
+      "INSERT INTO settings (key, value) VALUES ('ops_ctl_hb_last_sent', ?)"
+    ).bind(String(nowSec())).run();
+
+    let hits = 0;
+    network.use(http.post(`${OPS_URL}/api/heartbeat`, () => { hits++; return HttpResponse.json({ ok: true }); }));
+
+    const res = await SELF.fetch(`${BASE}/api/engine/trigger`, { method: 'POST', headers: TRIGGER_H });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { skipped: boolean }).skipped).toBe(false); // 引擎真的跑了
+
+    const self = await DB.prepare("SELECT last_seen FROM checks WHERE id = 'watch-dog:self-health'").first<{ last_seen: number }>();
+    expect(nowSec() - self!.last_seen).toBeLessThan(10); // 引擎執行證據
+    expect(hits).toBe(0); // 但 cross-monitor 心拍被 gate 擋下
+  });
 });

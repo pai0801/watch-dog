@@ -76,7 +76,10 @@ export async function sendOpsControlHeartbeat(
 //
 // Module-level throttle: each isolate throttles independently (harmless —
 // ops-control dedupes same-second inserts; KV/D1 cost stays O(pulses)).
-const PIGGYBACK_INTERVAL_MS = 45_000;
+// 2026-11-04 OPSCONT-006 方案 A（Peter 裁決 A+B+C）：45s → 300s。ops-control 端
+// watch-dog host 的 staleSeconds 同步放寬（≥ 2× 間隔），慢拍不再誤判離線；
+// fail-dead 語義不變——worker 死 → 無 fetch → piggyback 停 → 心跳停滯 → 告警。
+const PIGGYBACK_INTERVAL_MS = 300_000;
 let lastPiggybackMs = 0;
 
 /** Fire-and-forget heartbeat refresh from the fetch path. Never throws,
@@ -102,4 +105,39 @@ export function piggybackOpsControlHeartbeat(
  *  tests within a file; each test needs a fresh window). */
 export function resetPiggybackThrottleForTests(): void {
   lastPiggybackMs = 0;
+}
+
+// ===== Engine-path heartbeat cadence gate (2026-11-04, OPSCONT-006 方案 A) =====
+// runEngineTick 的 cross-monitor 心跳原本每 tick（1/min，cron+trigger 雙源）
+// 都發 = ~1,440+ 列/天灌進 ops-control heartbeats 表；與 piggyback（每 isolate
+// 節流）合計 ~5.2k 列/天線性成長。本 gate 把 engine 路徑降為每 5 分鐘一拍。
+//
+// 為什麼記在 D1 settings 而非 module state：cron/trigger tick 可能落在不同
+// isolate，module-level 節流對 engine 路徑不可靠（isolate 換新即重發）；
+// settings PK 讀 1 列/tick（rows_read 可忽略），跨 isolate 唯一真源。
+// 只在送出成功後才蓋章——送失敗下一 tick 重試，不吞心跳。
+export const ENGINE_HEARTBEAT_INTERVAL_S = 300;
+
+const ENGINE_HB_SETTING_KEY = 'ops_ctl_hb_last_sent';
+
+/** True when an engine-path heartbeat is due (no stamp yet, or the last
+ * successful send is older than ENGINE_HEARTBEAT_INTERVAL_S). */
+export async function engineHeartbeatDue(db: D1Database, nowSec: number): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .bind(ENGINE_HB_SETTING_KEY)
+    .first<{ value: string }>();
+  const last = row ? Number(row.value) : 0;
+  return !Number.isFinite(last) || nowSec - last >= ENGINE_HEARTBEAT_INTERVAL_S;
+}
+
+/** Stamp the last successful engine-path send. Call ONLY after a send
+ * returned true, so failures retry on the next tick. */
+export async function markEngineHeartbeatSent(db: D1Database, nowSec: number): Promise<void> {
+  await db
+    .prepare(
+      'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?'
+    )
+    .bind(ENGINE_HB_SETTING_KEY, String(nowSec), nowSec, String(nowSec), nowSec)
+    .run();
 }

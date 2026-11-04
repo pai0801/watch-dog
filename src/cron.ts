@@ -5,7 +5,11 @@ import type { ScheduledEvent } from '@cloudflare/workers-types';
 import type { AppBindings, Check } from './types';
 import { findDeadChecks, processCheckResult, shouldWriteOkLog } from './services/logic';
 import { pollCfUsage } from './services/cfUsage';
-import { sendOpsControlHeartbeat } from './services/crossMonitor';
+import {
+  engineHeartbeatDue,
+  markEngineHeartbeatSent,
+  sendOpsControlHeartbeat,
+} from './services/crossMonitor';
 import { runDueSchedules } from './services/scheduler';
 import { cleanupOldIssues, reportIssue } from './services/issues';
 import type { Project } from './types';
@@ -190,11 +194,22 @@ export async function runEngineTick(
       // dead can't send their own obituary: when watch-dog dies this heartbeat
       // goes stale and ops-control alerts the operator (Slack + email-king).
       // Optional wiring: missing token/URL → sendOpsControlHeartbeat no-ops.
-      try {
-        await sendOpsControlHeartbeat(env, via);
-      } catch (e) {
-        console.error('Cross-monitor heartbeat error:', e);
-        await reportEngineError(env, 'watch-dog:engine-crossmonitor', '跨監控心跳', e, 'warning');
+      //
+      // 2026-11-04 OPSCONT-006 方案 A：engine 路徑心跳改每 5 分鐘一拍
+      // （ENGINE_HEARTBEAT_INTERVAL_S，D1 settings 蓋章跨 isolate 唯一），
+      // 不再每 tick 都發——ops-control heartbeats 表插入從 ~5.2k/day 收斂。
+      // 只在送出成功後蓋章；ops-control 端 watch-dog staleSeconds 已同步
+      // 放寬（≥ 2× 間隔），慢拍不誤判離線，fail-dead 語義不變。
+      if (env.OPS_CONTROL_HEARTBEAT_URL && env.OPS_CONTROL_HOST_TOKEN) {
+        try {
+          if (await engineHeartbeatDue(env.DB, now)) {
+            const ok = await sendOpsControlHeartbeat(env, via);
+            if (ok) await markEngineHeartbeatSent(env.DB, now);
+          }
+        } catch (e) {
+          console.error('Cross-monitor heartbeat error:', e);
+          await reportEngineError(env, 'watch-dog:engine-crossmonitor', '跨監控心跳', e, 'warning');
+        }
       }
 }
 
