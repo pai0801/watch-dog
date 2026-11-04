@@ -616,6 +616,9 @@ import {
   piggybackOpsControlHeartbeat,
   resetPiggybackThrottleForTests,
   sendOpsControlHeartbeat,
+  engineHeartbeatDue,
+  markEngineHeartbeatSent,
+  ENGINE_HEARTBEAT_INTERVAL_S,
 } from '../src/services/crossMonitor';
 
 describe('sendOpsControlHeartbeat (cross-monitor)', () => {
@@ -670,7 +673,7 @@ describe('piggybackOpsControlHeartbeat (fetch-path refresh)', () => {
     expect(hits[0].body.host).toBe('watch-dog');
   });
 
-  it('throttles: a second call inside the 45s window sends nothing', async () => {
+  it('throttles: a second call inside the 5-min window (OPSCONT-006) sends nothing', async () => {
     let hits = 0;
     network.use(http.post(`${OPS_URL}/api/heartbeat`, () => { hits++; return HttpResponse.json({ ok: true }); }));
 
@@ -686,5 +689,28 @@ describe('piggybackOpsControlHeartbeat (fetch-path refresh)', () => {
     const { ctx, pending } = fakeCtx();
     piggybackOpsControlHeartbeat({} as AppBindings, ctx);
     expect(pending).toHaveLength(0);
+  });
+});
+
+describe('engineHeartbeatDue / markEngineHeartbeatSent (cadence gate, OPSCONT-006)', () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it('due with no stamp; stamping makes it not-due until the interval elapses', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // 無蓋章（fresh DB）→ due
+    expect(await engineHeartbeatDue(DB, now)).toBe(true);
+    // 蓋章後 → 窗內 not due
+    await markEngineHeartbeatSent(DB, now);
+    expect(await engineHeartbeatDue(DB, now + ENGINE_HEARTBEAT_INTERVAL_S - 1)).toBe(false);
+    // 過了 5 分鐘 → due（engine 路徑一拍 = interval，不含 piggyback）
+    expect(await engineHeartbeatDue(DB, now + ENGINE_HEARTBEAT_INTERVAL_S)).toBe(true);
+  });
+
+  it('interval is 300s — 每拍 5 分鐘（OPSCONT-006 方案 A 處方）', () => {
+    // 鎖住處方值：ops-control 端 watch-dog staleSeconds 與 engine fuse 窗口
+    // （≥ 2× 間隔）都以此為基準，改動必須同步兩端。
+    expect(ENGINE_HEARTBEAT_INTERVAL_S).toBe(300);
   });
 });
