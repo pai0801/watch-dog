@@ -8,7 +8,7 @@
 //
 // Note on the trade-off: this throw fires at the fetch entry (src/index.ts
 // wrapper) only — the scheduled/cron path deliberately bypasses
-// assertBindings (cron needs no ADMIN_TOKEN and must keep alerting even when
+// assertBindings (cron needs no ADMIN secrets and must keep alerting even when
 // the admin secret is missing). Layer 1 (secrets.required) blocks a deploy
 // without it, so a correctly deployed worker always passes; a runtime throw
 // means the secret was deleted after deploy — fetch fails loud, cron keeps

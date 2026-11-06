@@ -18,7 +18,7 @@ import { ErrorState } from '../views/dashboard';
 
 const admin = new Hono<{ Bindings: AppBindings }>();
 
-// All admin routes require Basic Auth (password = ADMIN_TOKEN secret).
+// All admin routes require Basic Auth (ADMIN_ACCOUNT + ADMIN_PASSWORD pair).
 admin.use('*', adminAuth);
 
 /**

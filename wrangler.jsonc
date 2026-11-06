@@ -50,7 +50,8 @@
 	// ⚠️ #14258 first-deploy trap: a brand-new Worker cannot have secrets set
 	// before its first deploy, and secrets.required blocks that deploy. First
 	// deploy flow: temporarily remove this "secrets" block → wrangler deploy →
-	// wrangler secret put ADMIN_TOKEN → add the block back (10 §5.1).
+	// wrangler secret put ADMIN_ACCOUNT / ADMIN_PASSWORD / CF_USAGE_API_TOKEN
+	// → add the block back (10 §5.1).
 	// (2026-09-05 已依此流程完成首次部署——平時這個區塊 [MUST] 保持在位。)
 	"secrets": {
 		"required": ["ADMIN_ACCOUNT", "ADMIN_PASSWORD", "CF_USAGE_API_TOKEN"]

@@ -8,6 +8,7 @@
 // admin CSRF guard for no benefit.
 
 import { Hono } from 'hono';
+import { secureHeaders } from 'hono/secure-headers';
 import type { AppBindings } from './types';
 import dashboardRoutes from './routes/dashboard';
 import apiRoutes from './routes/api';
@@ -20,6 +21,13 @@ import { piggybackOpsControlHeartbeat } from './services/crossMonitor';
 import { assertBindings } from './lib/bindings';
 
 const app = new Hono<{ Bindings: AppBindings }>();
+
+// Security headers baseline (SEC-REVIEW 1d, TODO-REVIEW N1, 2026-11-06):
+// X-Frame-Options DENY (single-operator — no legit framing), nosniff,
+// Referrer-Policy no-referrer, HSTS, plus COOP/CORP same-origin.
+// Hono 4.13.16 defaults verified against dist source (never trust defaults
+// blind); the only override is DENY over SAMEORIGIN.
+app.use('*', secureHeaders({ xFrameOptions: 'DENY' }));
 
 app.route('/', dashboardRoutes);
 app.route('/', apiRoutes);

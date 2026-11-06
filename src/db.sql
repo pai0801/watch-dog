@@ -351,3 +351,13 @@ CREATE INDEX IF NOT EXISTS idx_issues_last_seen ON issues(last_seen);
 CREATE INDEX IF NOT EXISTS idx_issues_state ON issues(state);
 -- 事件史按 issue 查（等值前綴）
 CREATE INDEX IF NOT EXISTS idx_issue_events_issue ON issue_events(issue_id);
+
+-- ===== login_failures（admin Basic-Auth 失敗計數，TODO-REVIEW N2 / SEC-REVIEW 1a，2026-11-06）=====
+-- 單一 UPSERT 原子維護（services/loginGuard.ts）：視窗過期重置為 1、否則 +1。
+-- key = cf-connecting-ip（[NEVER] XFF——可偽造）。鎖定後的查詢只讀不寫（D1 額度紀律）。
+-- PK 即索引（ip 等值查詢）；無需額外 index。
+CREATE TABLE IF NOT EXISTS login_failures (
+    ip TEXT PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0,
+    window_start INTEGER NOT NULL
+);

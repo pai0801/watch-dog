@@ -9,6 +9,12 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { timingSafeEqual } from '../lib/auth';
+import {
+  LOCAL_IP_BUCKET,
+  clearLoginFailures,
+  isLoginLocked,
+  registerLoginFailure,
+} from '../services/loginGuard';
 import type { AppBindings } from '../types';
 
 function challenge(c: Context<{ Bindings: AppBindings }>): Response {
@@ -17,6 +23,30 @@ function challenge(c: Context<{ Bindings: AppBindings }>): Response {
 }
 
 export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c, next) => {
+  // Failure-counter + lockout (SEC-REVIEW 1a / TODO-REVIEW N2, 2026-11-06):
+  // key = cf-connecting-ip only (XFF is attacker-controlled). D1 errors in
+  // the guard degrade to "counting unavailable" — the credential check
+  // below stays the real gate, a D1 blip must not take the admin UI down.
+  const ip = c.req.header('cf-connecting-ip') ?? LOCAL_IP_BUCKET;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    if (await isLoginLocked(c.env.DB, ip, now)) {
+      return c.text('Too many failed attempts — try again later.', 429);
+    }
+  } catch (e) {
+    console.error(`loginGuard isLoginLocked failed (ip=${ip}):`, e);
+  }
+
+  /** Record a failed attempt (best-effort — see note above); always 401. */
+  const fail = async (): Promise<Response> => {
+    try {
+      await registerLoginFailure(c.env.DB, ip, now);
+    } catch (e) {
+      console.error(`loginGuard registerLoginFailure failed (ip=${ip}):`, e);
+    }
+    return challenge(c);
+  };
+
   // CSRF guard: mutating requests must carry an XHR marker header. A
   // cross-origin <form> POST cannot set custom headers, which blocks
   // browser-replay of cached Basic credentials from other origins.
@@ -40,7 +70,7 @@ export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c,
 
   const header = c.req.header('Authorization');
   if (!header?.startsWith('Basic ')) {
-    return challenge(c);
+    return fail();
   }
 
   let username: string;
@@ -49,12 +79,12 @@ export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c,
     const decoded = atob(header.slice(6));
     const sep = decoded.indexOf(':');
     if (sep === -1) {
-      return challenge(c);
+      return fail();
     }
     username = decoded.slice(0, sep);
     password = decoded.slice(sep + 1);
   } catch {
-    return challenge(c);
+    return fail();
   }
 
   if (
@@ -63,7 +93,15 @@ export const adminAuth: MiddlewareHandler<{ Bindings: AppBindings }> = async (c,
     !timingSafeEqual(username, expectedAccount) ||
     !timingSafeEqual(password, expectedPassword)
   ) {
-    return challenge(c);
+    return fail();
+  }
+
+  // Success: reset the counter (DELETE no-ops when clean — no per-request
+  // write cost for normal operation).
+  try {
+    await clearLoginFailures(c.env.DB, ip);
+  } catch {
+    // Counter cleanup is cosmetic; a stale row just re-locks sooner.
   }
 
   await next();

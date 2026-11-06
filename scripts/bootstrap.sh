@@ -33,7 +33,7 @@ if [ ! -f .dev.vars ]; then
     bash secrets-archive/restore.sh
   else
     cp .dev.vars.example .dev.vars
-    echo "  無 env.7z（尚未首次 seal）→ 以 .dev.vars.example 假值建立 .dev.vars（local dev 前填入真 ADMIN_TOKEN）"
+    echo "  無 env.7z（尚未首次 seal）→ 以 .dev.vars.example 假值建立 .dev.vars（local dev 前填入真 ADMIN_ACCOUNT/ADMIN_PASSWORD 成對值）"
   fi
 fi
 

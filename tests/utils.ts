@@ -50,6 +50,7 @@ export async function resetDb(): Promise<void> {
     DB.prepare('DELETE FROM issue_events'),
     DB.prepare('DELETE FROM issues'),
     DB.prepare('DELETE FROM issue_map'),
+    DB.prepare('DELETE FROM login_failures'),
   ]);
 }
 
