@@ -5,6 +5,75 @@
 
 ---
 
+## Cycle 2026-11-06 — 07-ALL-IN-ONE 全量收斂（FRAMEWORK-SYNC→A→B→C→D→E→F）
+
+### PRE-MORTEM — 2026-11-06 / hardening cycle（D31）
+
+Scenario: 14 天後 launch 失敗了。往回推，哪裡出錯？
+
+#### Tigers（real risks — need action）
+
+| # | Risk | Evidence | Class | Mitigation | Owner | Date |
+|---|------|----------|-------|------------|-------|------|
+| T1 | login_failures 表未在 prod 套用 → admin 限流靜默失效（「以為有防線實際沒開」＝SEC-REVIEW 起源案例） | 本輪新增表（src/db.sql）；middleware 對缺表 fail-open | launch-blocking | deployment.md Migration 順序（部署前 d1 execute db.sql）＋部署後驗證清單含「表存在」檢查＋D35 鎖定 | @peter | 2026-11-06 |
+| T2 | secureHeaders 破壞 dashboard/admin 頁面（CDN script 載入或 htmx 行為） | layout.ts:19-25 CDN scripts；middleware 全域生效 | launch-blocking | 測試斷言（securityHeaders.test）＋部署後人工驗證清單（瀏覽器開 / 與 /admin） | @peter | 2026-11-06 |
+| T3 | 匿名公開端點無限流——GET /api/status 全表 SELECT 可燒請求數+D1 rows_read | SEC-REVIEW M-2；TODO-REVIEW N10 | fast-follow | 下 cycle 補 best-effort limiter（service 層＋測試） | @peter | 2026-12-06 |
+| T4 | hono 4.13 runtime 行為差異（cookie/SSR 類修補）影響線上行為 | DEP-HEALTH §2 主要回歸觀察點 | track | 測試套件已全綠；部署後觀察警報送達與 cron log 一週 | — | — |
+
+#### Paper Tigers（overblown — document to align）
+
+- 「攻擊者灌 401 燒 D1 寫入額度」：鎖定後免寫（單 SELECT 429）＋閾值/視窗上限＝每 IP 每 15 分最多 ~21 寫；正常操作失敗近零——額度風險有界。
+- 「CORP same-origin 擋 CDN script」：CORP 約束的是「他人載入我們的資源」，不是「我們載入他人的 script」；COEP 未啟用，`<script src>` 不受限（測試＋部署後人工驗證雙保險）。
+
+#### Elephants（unspoken — investigate）
+
+- workers.dev 平台未來是否強制變更 header/快取行為：probe＝部署後 `curl -sI` 驗證四 header 實際在線上回應（本地測試不等於平台邊緣行為）。
+
+#### Summary
+
+- launch-blocking Tigers: 2（皆有 mitigation+owner+date）
+- fast-follow Tigers: 1（N10）
+- track Tigers: 1
+
+### RETRO — 本輪 action items（D30）
+
+| # | Action | Owner | Deadline |
+|---|---|---|---|
+| A1 | 部署時照 deployment.md Migration+驗證清單執行（T1/T2 收口） | @peter | 2026-11-13 |
+| A2 | N10 匿名面 best-effort limiter（service 層＋測試） | agent（下 cycle） | 2026-12-06 |
+| A3 | `CLOUDFLARE_API_TOKEN` CF dashboard 輪替（歷史洩漏待辦，FIX-LOG 既有） | @peter | 2026-11-30 |
+
+Carry-over：TODO-REVIEW #27（admin mount 承重牆收窄）、#28（測試 helper 去重）、N11-N16 逐卡——觸發條件與現況見 TODO-REVIEW。
+
+### R1 [MUST] Directives
+
+- 07 六段 pipeline 照序執行：FRAMEWORK-SYNC（對帳→GUARD-TEMPLATES fast-forward→01 適配保留）→ Phase A（三 agents：arch/doc+prune/sec-opus＋DEP-HEALTH＋11§3＋doc-drift）→ Phase B（THINK×3→實作）→ Phase C（D1-D12 矩陣＋guard 擴充）→ Phase D（artifacts＋四重奏）→ E/F。
+- SEC-REVIEW 兩 High 當 cycle 修補（secureHeaders＋loginGuard）；DEP-HEALTH P0 hono floor 上調＋audit 歸零。
+- findings 走 reduce-findings.py 正規化（25 項分類裁決進 TODO-REVIEW）。
+
+### R2 [NEVER] Directives
+
+- 未違反：無 `--no-verify`、無 force push、無 secret 明文（域 A/B 模型照舊）、無虛構 guard（D1-D12 逐項附證據，N/A 附理由）。
+- 當場修正：一次 `npm test | tail` pipe 截斷（行為帳本既有違規類型）——立即停 task 重跑無 pipe 版。
+
+### R3 Artifact 完整
+
+- `/documentation/` 核心集 5 份＋deployment.md（D26/D28/D35 首次建立）；CHANGELOG.md 建檔（含 133-commit 未分段歷史回填索引）；TODO-REVIEW 增 cycle 區段（25 findings）；THINKING.md 3 個 THINK block；FIX-LOG 本輪 entry；guards 擴充 D16/D17/D26-D37。
+
+### R4 驗證證據
+
+- 驗證四重奏：`tsc --noEmit` 0 errors／`npm run lint` 0 warnings／`npm test` 全綠（app pool＋guards pool，count 較 Phase A 前淨增）／`make build` 成功——全程無 pipe 截斷。
+- `npm audit --omit=dev` 歸零（hono 4.13.16）。
+
+### R5 經驗記錄
+
+- hono secureHeaders 預設集以 dist 原始碼實證（XFO SAMEORIGIN 需覆寫 DENY；COEP 預設關閉故 CDN script 不受 CORP 影響）——「[NEVER] 信 default」的具體實踐。
+- 單 UPSERT（ON CONFLICT + CASE WHEN 視窗判斷 + RETURNING）可原子完成「計數＋過期重置」——D1 無跨語言 transaction 約束下的原子計數器模式（已 putkm）。
+- 已維護 codebase 的 07 cycle 重心＝文檔收斂＋新機制首輪基線——getkm ae11354168c6/5bb889dbdbe0 模式再印證。
+- **D38 注入測試的還原紀律**：violation-injection 後用 `git restore` 還原，把同檔未 commit 的本輪編輯一起清掉（REFLECT/FIX-LOG/README/Makefile 重寫收復）——注入測試 [MUST] 用 `cp` backup/restore 成對，[NEVER] 對含未 commit 編輯的檔案 git restore。
+
+---
+
 ## Cycle 2026-09-04（末輪）— follow-through 收尾：TODO-REVIEW 16→0 全清 + 文件與物理現實對齊
 
 ### R1 [MUST] Directives

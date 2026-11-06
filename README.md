@@ -295,6 +295,8 @@ scripts/enroll.sh my-service 我的服務
 | `/api/schedules` | POST | project token | 註冊排程觸發（secret 僅回傳一次） |
 | `/api/schedules?project_id=` | GET | project token | 列出自己的排程（不含 secret） |
 | `/api/schedules/:id?project_id=` | GET / PUT / DELETE | project token | 查詢 / 修改 / 刪除自己的排程 |
+| `/api/engine/trigger` | POST | Bearer `TRIGGER_TOKEN`（缺 → 503） | 外部引擎觸發（第二觸發源，免疫 CF cron dispatch 抖動；30s 去重） |
+| `/cf-usage/detail?label=` | GET | public | CF 用量卡展開 fragment（htmx；label ≤100 字元） |
 | `/api/cf-usage` | GET | Bearer `CF_USAGE_API_TOKEN` | 唯讀 CF 用量查詢（見下節） |
 | `/api/ingest/issues` | POST | `cf-webhook-auth` header（= `ISSUES_INGEST_TOKEN`） | CF Issues Automations webhook 接收端（見 §6） |
 | `/api/issues/report` | POST | project token | **掛號 API**：服務自評分級的主動上報（handled error／業務異常；分級指引見 `docs/client-guide.md`）——與 CF Issues 同佇列同 Windmill 車道 |
@@ -384,11 +386,15 @@ npm run deploy
 |---|---|---|
 | **要被監控的服務**（維護者 / AI agent） | [docs/client-guide.md](docs/client-guide.md) | 30 秒接入、token 與認證、check 參數（含實際 clamp）、警報路由、shell/Node/Python 範例、agent 指示塊 |
 | **watch-dog 操作者** | [docs/usage.md](docs/usage.md) | Admin UI、專案建立、Slack 設定、維護模式、排查 |
-| **整合進程式碼** | [docs/api.md](docs/api.md) | 完整 API 參考（端點 / 欄位 / 錯誤碼 / clamp） |
+| **整合進程式碼** | [docs/api.md](docs/api.md) | 完整 API 參考（端點 / 欄位 / 錯誤碼 / clamp；含 scheduler hub、外部觸發、issues 家族） |
 | **開發 / 維護本 repo** | [docs/development.md](docs/development.md) | 環境、測試、框架規範 |
 | **手動測試** | [docs/testing.md](docs/testing.md) | 測試程序 |
+| **部署 / 回滾 / 排障** | [documentation/deployment.md](documentation/deployment.md) | 環境矩陣、部署指令、Migration 順序、回滾、維運 Runbook（交接核心） |
+| **架構 / 資料流 / 權限 / 變數 / 測試地圖** | [documentation/](documentation/) 核心集 | architecture / flows / permissions / variables / tests（框架 D26 文檔集） |
 
-歷史計畫文件在 `docs/plans/`（記錄用，不反映現況）。
+專案規則 SSoT＝[`01-CLAUDE.md`](01-CLAUDE.md)（AI agent 起手必讀）；歷史計畫文件在 `docs/plans/`（記錄用，不反映現況）。
+
+> **Last verified: 2026-11-06**（07-ALL-IN-ONE cycle；本檔通過 D36 Handover Parity 六項檢查——guard 鎖定於 `tests/guards/framework.test.ts`）
 
 ## License
 

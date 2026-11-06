@@ -5,6 +5,14 @@
 
 ## Entries
 
+### [2026-11-06] 07-ALL-IN-ONE 全量收斂——SEC 兩 High 修補＋框架 D16-D37 guard 接線＋documentation 核心集建檔
+
+**目標**：07-ALL-IN-ONE orchestrator 全量 cycle（FRAMEWORK-SYNC→Phase A-F）。Phase A 掃描（doc-accuracy/sec-review opus/DEP-HEALTH/PRUNE）揭兩項 High：admin Basic Auth 面 0 層限流（H-1）＋security headers 0/4（H-2）；一項 P0 依賴通告（hono direct HIGH×2）。另：框架已擴至 D39 但本地 guard 停在 D21/D39/D5——registry 宣稱與實作差距（phantom enforcement 風險）。user-story：作為單操作者，我要 admin 面與公開回應具備基準防線，且文檔/guard 集反映框架現況。acceptance criteria：①20 次失敗後 21st 請求（含正確憑證）429 且他 IP 不受影響；②GET / 與 /api/status 回應含 XFO DENY/nosniff/Referrer-Policy/HSTS；③npm audit --omit=dev 歸零；④D16/D17/D26-D37 guards 存在且非 vacuous；⑤/documentation/ 核心 5＋deployment 就位。
+**原因**：admin URL 已進 README（公開）而無任何節流——單操作者內部工具的威脅模型假設破產；headers baseline 無人擁有；hono 4.13 帶 timing hardening。phantom enforcement＝registry 宣稱 D26-D36 但 guards.test 從未實作——「以為有防線」的文檔級版本。
+**預期結果**：`src/services/loginGuard.ts`（單 UPSERT 原子計數＋視窗重置＋RETURNING；isLocked 鎖定後免寫；fail-open 容錯）＋`login_failures` 表（冪等 additive）；adminAuth 接線（cf-connecting-ip key、成功清計數、D1 錯誤降級不鎖死操作者）；`secureHeaders({ xFrameOptions: 'DENY' })` 全域（預設集先以 dist 原始碼實證——[NEVER] 信 default）；hono floor `^4.13.16`；documentation/ 核心集 5＋deployment.md（D26/D28/D35 首建）＋CHANGELOG.md 建檔（133-commit 回填索引）＋README D36 化；tests/guards 擴充 D16/D17/D26-D37（violation-injection 非空證明）。
+**範圍**：src/index.ts、src/middleware/adminAuth.ts、src/services/loginGuard.ts（新）、src/db.sql（+login_failures）、package.json、tests/{loginGuard,securityHeaders}.test.ts（新）、tests/utils.ts（resetDb+login_failures）、tests/guards/framework.test.ts（+13 guards）、scripts/ship-check.sh（新）＋Makefile ci 接線、documentation/*（新 6 檔）、CHANGELOG.md（新）、docs/{development,api,testing,guard-coverage-report}.md、wrangler.jsonc/bootstrap.sh（ADMIN_TOKEN 註解清）、docs/ 歷史檔歸檔（PRUNE）、README.md、THINKING.md、REFLECT.md、TODO-REVIEW.md、references/GUARD-TEMPLATES.md（sync fast-forward）。
+**驗證**：驗證四重奏全綠——`tsc --noEmit` 0 errors／`npm run lint` 0 warnings／`npm test` app pool 全綠（Phase A 前 256 tests → 淨增）＋guards pool 35/35 全綠／`make build` 成功；`npm audit --omit=dev` 0 vulnerabilities。新測試：loginGuard service 層 6＋middleware 端到端 2；securityHeaders 3。D38 非空證明：D16/D17/D26-D32/D35 注入違規 → FAIL → 還原 → 綠（D33/D36/D37 補驗）。部署後驗收＝deployment.md「部署後驗證」清單（login_failures 表存在＋線上 header curl）。
+
 ### [2026-11-03] ok-pulse log 小時採樣——D1 寫入額度結構性瘦身（~30k rows/day）
 
 **目標**：plan `docs/plans/2026-11-03-oklog-sampling.md`（tier major 全 gate；看板 WATCHDOG-020）。終結 helperp 帳號 D1 寫入額度天天 60-100% 的結構性燒量：logs 表 ok-pulse 無條件寫入 ~32k rows/day（6,841 runs/day）是帳號最大單一寫入戶，2026-11-02 帳號實際 101,356/100k 爆表（alliance-member 18:34 單分鐘 33.8k seed 突發疊加 baseline）。ok log 列無偵測功能（fail-dead 只讀 `checks.last_seen`、escalation 只數 error rows、恢復判定用 `checks.status`）——「無條件每分鐘 put」反模式（額度紀律 §3），從未被審計。

@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-- Node.js 18+
-- npm or yarn
-- Cloudflare account with Workers enabled
-- Wrangler CLI installed globally
+- Node.js 22+（package.json `engines`；wrangler 4.x 實測硬擋 <22）
+- npm
+- Cloudflare account with Workers enabled（D1 額度是帳號級——動 schema/高頻寫入前見全域紀律）
+- Wrangler CLI（`npm install` 即含 devDependency；無需全域安裝）
 
 ## Setup
 
@@ -50,14 +50,21 @@ npx wrangler d1 execute watch-dog-db --local --file=src/db.sql
 npx wrangler d1 execute watch-dog-db --remote --file=src/db.sql
 ```
 
-### 5. Set the Admin Password
+### 5. Set the Admin Credentials（帳密成對）
 
-`/admin` requires the `ADMIN_TOKEN` secret (Basic Auth password; username
-ignored). For local dev put it in `.dev.vars`; for production:
+`/admin` uses Basic Auth with the **account + password pair** — both halves
+are verified (username is NOT ignored; `src/middleware/adminAuth.ts`).
+Secrets: `ADMIN_ACCOUNT` + `ADMIN_PASSWORD`. Local dev 放 `.dev.vars`（拷
+`.dev.vars.example`）；production：
 
 ```bash
-npx wrangler secret put ADMIN_TOKEN
+npx wrangler secret put ADMIN_ACCOUNT   # 帳號
+npx wrangler secret put ADMIN_PASSWORD  # 密碼
 ```
+
+> 歷史注記：2026-09-05 前為單一 `ADMIN_TOKEN`（username 忽略）——已改制，
+> `ADMIN_TOKEN` worker secret 已刪。失敗計數鎖定（20 次/15 分/IP）見
+> `src/services/loginGuard.ts`。
 
 ## Local Development
 
@@ -95,11 +102,8 @@ npx wrangler d1 execute watch-dog-db --local --command "SELECT * FROM checks"
 npm run deploy
 ```
 
-### Deploy Specific Environment
-
-```bash
-npx wrangler deploy --env production
-```
+單一部署（wrangler.jsonc 無 `[env]` 區塊——無 preview/staging env）。部署
+與維運完整手冊見 [documentation/deployment.md](../documentation/deployment.md)。
 
 ## Testing
 
@@ -126,7 +130,8 @@ See [docs/testing.md](testing.md) for the full testing checklist.
 TOKEN="your-project-token-here"
 API="http://localhost:8787"
 
-# Register a project
+# Update an operator-created project's config（註冊封閉：未知 project 回 404——
+# project 由操作者經 /admin 建立，之後才可用本端點改 config）
 curl -X PUT $API/api/config \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -171,30 +176,44 @@ The cron handler runs every minute. To test:
 
 ```
 src/
-├── index.ts           # Entry point: Hono app, mounts routes, exports fetch + scheduled
-├── cron.ts            # Cron handler (dead-check detection, self-health, log cleanup)
-├── db.sql             # Database schema
+├── index.ts           # Entry point: Hono app（mount 順序＝鑑權架構）+ secureHeaders + fetch/scheduled
+├── cron.ts            # Engine tick（dead-check 偵測、self-health、cleanup、輪詢/排程/心跳隔離段）
+├── db.sql             # Database schema（冪等真源）
 ├── types.ts           # TypeScript type definitions
-├── client_example.py  # Reference Python client (see docs/usage.md)
 ├── routes/
-│   ├── api.ts         # Machine API (config / pulse / maintenance / status)
-│   ├── admin.ts       # Admin dashboard routes (behind Basic Auth + CSRF guard)
-│   └── dashboard.ts   # Public read-only dashboard
+│   ├── api.ts         # Machine API（config / pulse / maintenance / status / cf-usage）
+│   ├── admin.ts       # Admin dashboard routes（Basic Auth + CSRF guard 之後）
+│   ├── schedules.ts   # Scheduler hub 註冊 API（project token）
+│   ├── trigger.ts     # POST /api/engine/trigger（rn1g 第二觸發源）
+│   ├── issues.ts      # Issues 收集器（CF webhook ingest / Windmill 車道 / 觀察頁）
+│   └── dashboard.ts   # Public read-only dashboard + cf-usage fragment
 ├── views/
 │   ├── layout.ts      # HTML layout + CSS
 │   ├── dashboard.ts   # Public dashboard views
-│   └── adminViews.ts  # Admin page views (token masked)
+│   ├── adminViews.ts  # Admin page views（token/id 面具化）
+│   ├── cfDetail.ts    # CF 用量明細 htmx fragment
+│   └── issues.ts      # 待處理 log 觀察頁 view
 ├── middleware/
-│   └── adminAuth.ts   # Basic Auth (ADMIN_TOKEN) + XHR/htmx CSRF check
+│   └── adminAuth.ts   # Basic Auth（帳密成對）+ 失敗計數鎖定 + XHR/htmx CSRF check
 ├── lib/
-│   └── auth.ts        # Constant-time token compare, project auth helpers
+│   ├── auth.ts        # Constant-time token compare, project auth helpers
+│   ├── bindings.ts    # assertBindings（secrets 合約 Layer 2）
+│   ├── validate.ts    # charset gate / clamp / LIKE escape
+│   └── format.ts      # 指標值格式化
 └── services/
-    ├── logic.ts       # Check processing state machine
-    ├── alert.ts       # Slack alert service
-    ├── settings.ts    # Settings management
-    └── maintenance.ts # Maintenance mode state transitions
-tests/                 # vitest suite (runs inside workerd)
-docs/                  # Documentation
+    ├── logic.ts       # Check processing state machine（fail-dead 核心）
+    ├── alert.ts       # Slack + email-king 雙通道警報
+    ├── settings.ts    # D1 settings 表管理
+    ├── maintenance.ts # Maintenance mode state transitions
+    ├── scheduler.ts   # Dumb ticker：due 排程觸發（HMAC 簽名回呼）
+    ├── crossMonitor.ts# ops-control 心跳（engine 蓋章 + fetch piggyback）
+    ├── cfUsage.ts     # CF GraphQL Analytics 輪詢與警示
+    ├── cfResources.ts # CF 資源明細與名稱刷新
+    ├── issues.ts      # Issues 狀態機（ingest/claim/feedback/保險絲）
+    └── loginGuard.ts  # admin 失敗計數鎖定（D1）
+tests/                 # vitest suite（app pool 跑 workerd 全保真；guards pool 跑架構 guard）
+documentation/         # 框架核心文檔集（architecture/flows/permissions/variables/tests/deployment）
+docs/                  # Project documentation（api/client-guide/testing 等）
 ```
 
 ## Debugging

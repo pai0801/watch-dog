@@ -45,14 +45,14 @@
 ## 接線（guard 何時真的在跑）
 
 - **pre-commit**（framework `pre-commit` hooks，`scripts/install-git-hooks.sh` 為 raw 備援）：§L＋§M＋`secrets-archive/pre-commit-check.sh`。`.secrets.baseline` 為**一次性** detect-secrets 掃描證據（據以發現 docs/plans 洩漏並 redact），未接持續掃描 hook——待辦見 TODO-REVIEW #13。
-- **pre-push**：`npm test`（workerd app pool 60＋guards pool 20）。
+- **pre-push**：`npm test`（workerd app pool＋guards pool，測試數隨開發變動——以當次輸出為準）。
 - **verify 入口**：`./scripts/portability-smoke.sh`（`.portability.toml [verify]` SSoT）。
 - **CI**：`.github/workflows/main.yml`（self-hosted runner，braingo 模式）→ `make install` → `make ci` → backup → cleanup。
 
-## 驗證證據（2026-09-04 實跑）
+## 驗證證據（2026-09-04 實跑；2026-11-06 覆核仍綠）
 
-- `npm run test:guards` → **20/20 綠**（portability 14、framework 6）。
-- `npm run test:app` → **60/60 綠**（workerd pool）。
+- `npm run test:guards` → 全綠（portability＋framework，計數以當次輸出為準）。
+- `npm run test:app` → 全綠（workerd pool）。
 - `python3 scripts/check-manifest-gitignore.py` → exit 0（一致 ✓）；`python3 scripts/check-secrets-coverage.py` → exit 0（正向綠；反向 1 warn 如上節）。
 - D38 non-vacuous 證明：7 項注入違規 → guard FAIL → 還原 → 綠（證據表記於 session progress.txt）。
 

@@ -466,3 +466,55 @@ Verify the signature before trusting the body — see the copy-paste recipe in
 
 Read-only overview for the operator (Basic Auth). Secret is never selected.
 No admin write path exists by design — projects manage their own schedules.
+
+---
+
+## External Engine Trigger
+
+### POST /api/engine/trigger
+
+第二觸發源（rn1g VPS cron，2026-10-24）：CF cron dispatch 抖動/中斷時保證偵測引擎持續運轉。與 CF cron 共用同一 `runEngineTick`，行為完全一致。
+
+- **Auth**：`Authorization: Bearer <TRIGGER_TOKEN>`（專用靜態 secret；未設定 → `503` fail-closed）
+- **去重**：30 秒 recency guard——前一 tick（CF cron 或另一次 trigger）剛跑過 → `{ ok: true, skipped: true, lastTickAgoSec: N }`，不重跑
+- **成功**：`{ ok: true, skipped: false }`
+- 錯誤回應：`401`（token 錯）、`503`（wiring 缺）
+
+---
+
+## Issues Collector API（WATCHDOG-015/016，2026-10-31）
+
+> 狀態機與處置車道契約：`docs/WINDMILL-CONTRACT.md`（SSoT）；觀察頁 `GET /issues`（公開唯讀）。
+
+### POST /api/ingest/issues
+
+CF Workers Issues Automations 的 generic webhook 目的地。
+
+- **Auth**：`cf-webhook-auth: <ISSUES_INGEST_TOKEN>` header（CF Notifications 標準機制；`Authorization: Bearer` 同值也收，方便 curl 手測）
+- **Body**：CF webhook JSON payload（tolerant 解析；非 object → `400`）
+- **行為**：新 fingerprint → `open` ＋ warning 警報（maintenance 靜音）；resolved 事件 → 關閉＋recovery；done/resolved 後再觸發 → regression 新 episode
+- **成功**：`{ ok, issue_id, changed, state }`；未設定 secret → `503` fail-closed
+
+### POST /api/issues/report
+
+服務**自評分級**主動掛號（WATCHDOG-016）——認證同 `/api/pulse`（project token，token 反查 project）。
+
+- **Auth**：`Authorization: Bearer <project-token>`
+- **Body**：`{ title (必填), severity?: 'warning'|'critical', fingerprint?, message?, check_name? }`
+- **行為**：fingerprint 去重（同指紋重複 → `last_seen` 推進不重複掛號）；分級判準見 `docs/client-guide.md`
+- **成功**：`{ ok, issue_id, changed, state }`
+
+### Windmill 處置車道（`/api/windmill/*`）
+
+認領-回報循環，全部 `Authorization: Bearer <WINDMILL_TOKEN>`（未設定 → `503`）：
+
+| Endpoint | 行為 | 錯誤 |
+|---|---|---|
+| `GET /api/windmill/issues` | listClaimable：`open` ＋ claimed 洩漏回收（claim 超 30 分無 heartbeat） | — |
+| `POST /api/windmill/heartbeat` | Windmill 存活心跳（自舉 `automation:windmill-pulse` check——Windmill 死也會被偵測） | — |
+| `POST /api/windmill/issues/:id/claim` | `attempt_count+1`；超過 2 次自動嘗試 → `escalated`＋critical＋email；並自動設映射專案 maintenance 45 分 | `409` live claim/max-attempts |
+| `POST /api/windmill/issues/:id/feedback` | `status: done\|failed\|skipped` → 對應狀態轉移（failed → open 重試或 escalated） | `409` 非 claimed 狀態 |
+
+### GET /issues
+
+公開唯讀觀察頁（HTML，htmx 輪詢）——只顯示 title/狀態/認領標記等詮釋資料；raw payload 留在 DB 不進頁面。

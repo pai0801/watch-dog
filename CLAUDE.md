@@ -49,7 +49,7 @@ DEV_PORT=8789 ./dev-tunnel.sh ngrok
 
 ## Cloudflare Stack Framework
 
-核心規則見本專案的 `01-CLAUDE.md` … `07-ALL-IN-ONE.md`（cp 自 `~/Code/rules/cloudflare/`，本地可調——§1 已調成真實棧 Hono/D1 無 Astro/Svelte、N/A 段落已標記）。guard 測試在 `tests/guards/`（portability §A–§M watch-dog 適配版 + framework D18–D21）；框架更新走 `~/Code/rules/scripts/sync-framework.sh <repo>`（merge-sync，[NEVER] 盲 cp）。
+核心規則見本專案的 `01-CLAUDE.md` … `07-ALL-IN-ONE.md`（cp 自 `~/Code/rules/cloudflare/`，本地可調——§1 已調成真實棧 Hono/D1 無 Astro/Svelte、N/A 段落已標記）。guard 測試在 `tests/guards/`（portability §A–§N watch-dog 適配版 + framework D5/D16-D21/D26-D39）；框架更新走 `~/Code/rules/scripts/sync-framework.sh <repo>`（merge-sync，[NEVER] 盲 cp）。
 
 跨棧承重牆（[NEVER] 抄進本 repo，以路徑引用、讀了實作）：
 
@@ -80,7 +80,7 @@ Absolute rules:
 
 ## 開發紀律
 
-- 完成定義：`make ci` 全綠（tsc + ESLint + 測試雙 pool + §L/§M python guard）。`npm test` = app pool（workerd 全保真）+ guards pool。
+- 完成定義：`make ci` 全綠（tsc + ESLint + 測試雙 pool + §L/§M python guard + ship-check [D29]）。`npm test` = app pool（workerd 全保真）+ guards pool。
 - cron 偵測/警報邏輯改動必附測試（`tests/`）；D1 schema 變更同步 `src/db.sql`（冪等）。
 - 部署前跑 `scripts/portability-smoke.sh`；fresh-clone 重建用 `scripts/bootstrap.sh`。
 

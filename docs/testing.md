@@ -9,7 +9,8 @@ Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.
 ## Authentication (Basic Auth)
 - [ ] Visiting `/admin` without credentials shows a browser Basic Auth prompt
 - [ ] Wrong password is rejected (401, prompt reappears)
-- [ ] Correct `ADMIN_TOKEN` password (any username) opens the dashboard
+- [ ] Correct `ADMIN_ACCOUNT` + `ADMIN_PASSWORD` pair opens the dashboard（username 也必驗——2026-09-05 起）
+- [ ] 20 次失敗後同一 IP 被鎖 429（15 分鐘視窗；`src/services/loginGuard.ts`）
 - [ ] Mutating actions without `X-Requested-With`/`X-HX-Request` are blocked (403) — cross-site form POSTs cannot pass the CSRF guard
 
 ## Tab Switching
@@ -93,4 +94,4 @@ Manual testing checklist for `/admin` page at https://watch-dog.helperp.workers.
 - **cron wiring**：scheduled handler 端到端 fire；不變式①隔離——scheduler 回呼失敗
   不破壞 fail-dead dead-check（雙釘測試）。
 
-狀態：**Verified**——全部已實作並有測試（217 passing）。
+狀態：**Verified**——全部已實作並有測試（測試數隨開發變動，以 `npm test` 當次輸出為準——2026-11-06 快照：app pool 13 檔全綠＋guards pool 2 檔全綠）。

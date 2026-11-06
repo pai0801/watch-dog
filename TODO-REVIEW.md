@@ -51,6 +51,51 @@
 | 27 | `src/routes/admin.ts`（`admin.use('*', adminAuth)`） | adminAuth 側漏：middleware 在 mount-at-'/' 時全域生效——route mount 順序成為承重牆（api/schedules 必須 mount 在 adminRoutes 前，`src/index.ts` 已留註解）；任何日後 mount 在 adminRoutes 之後的 public route 都會被 Basic Auth gate 吃掉 | 收窄為 `use('/admin/*', ...)` 可解，但動 auth gate 需獨立評估＋測試（含既有 admin 測試全數回歸） | 待排程（2026-10-19 scheduler hub 輪發現） |
 | 28 | `runScheduledTick`（`tests/schedules.test.ts`）／`runScheduled`（`tests/cron.test.ts`）／`basic()`（`tests/admin.test.ts`） | 測試 helper 重複：兩個 scheduled-tick helper 同型（可抽 `tests/utils.ts`）；`btoa` Basic Auth header 構築亦與 admin 測試的 `basic()` 重複 | 抽共用 helper 進 `tests/utils.ts`；純測試碼去重，無 runtime 風險，可與下次測試輪順手做 | 待排程（2026-10-19 scheduler hub 輪發現） |
 
+## Cycle 2026-11-06 — 07-ALL-IN-ONE 全量收斂輪（findings 經 reduce-findings.py 正規化；分類裁決見下）
+
+> 掃描源：03 §3 文檔準確性（doc-accuracy agent）＋ 03 §4 模式覆蓋 ＋ SEC-REVIEW（security-reviewer opus，`references/SECURITY-REVIEW.md` §1）＋ DEP-HEALTH（`references/DEPENDENCY-HEALTH.md` §1）＋ PRUNE。分級：Critical 0 / High 6 / Medium 7 / Low 12。
+
+### 本輪必修（匯入 Phase B/C，走 02 THINK→驗證）——**全數已清償 2026-11-06（本輪）**
+
+| # | 分類 | 嚴重度 | 位置 | 問題 | 處置 |
+|---|---|---|---|---|---|
+| N1 | HARDEN | High | `src/index.ts` | H-2：security headers 0/4（admin 可被 iframe clickjacking；workers.dev 無平台 HSTS） | 已清償 2026-11-06——`secureHeaders({xFrameOptions:'DENY'})`＋tests/securityHeaders.test.ts 鎖定（locked: SEC-1d） |
+| N2 | HARDEN | High | `src/middleware/adminAuth.ts` | H-1：admin Basic Auth 面 0 層限流（無體積限流/失敗計數）——遠端可無限 brute-force，唯一阻力是密碼強度 | 已清償 2026-11-06——`src/services/loginGuard.ts`（D1 UPSERT 原子計數 20 次/15 分/IP）＋login_failures 表＋service/middleware 雙層測試（locked: SEC-1a） |
+| N3 | HARDEN | High | `package.json` | P0：hono 4.11.7 direct HIGH（timing hardening＋serveStatic/CORS CVE，後二者不可達） | 已清償 2026-11-06——floor ↑ 4.13.16，npm audit --omit=dev 歸零（locked: DEP-P0） |
+| N4 | MISSING_DOC | High | `docs/development.md` | A1：教 `ADMIN_TOKEN` 單密碼制（照做必失敗——現實帳密成對）；A6 `--env production` 不存在；A7 Node 18+ 過時 | 已清償 2026-11-06——三節改寫（成對指引/刪 --env/Node 22+） |
+| N5 | MISSING_DOC | High | `docs/development.md:170` | A2：結構樹缺 12+ 檔＋adminAuth 註記過時 | 已清償 2026-11-06——結構樹重畫（含 documentation/） |
+| N6 | MISSING_DOC | High | `docs/api.md` | A3：自稱完整 API 參考但缺 issues 家族 7 端點＋trigger | 已清償 2026-11-06——補 trigger＋issues 家族 8 端點＋WINDMILL-CONTRACT SSoT 指向 |
+| N7 | MISSING_DOC | Medium | `README.md` | A4：API 表缺 `/api/engine/trigger`＋`/cf-usage/detail`；A10 plans 指引不完整 | 已清償 2026-11-06——兩端點補列＋文檔表擴（deployment/documentation 核心）＋Last verified |
+| N8 | MISSING_DOC | Medium | `docs/testing.md`＋`docs/guard-coverage-report.md` | A5 any username 過時；A12 測試數字過時 | 已清償 2026-11-06——帳密成對＋鎖定檢查項；數字改「當次輸出為準」（D37） |
+| N9 | MISSING_DOC | Medium | `wrangler.jsonc:53`＋`scripts/bootstrap.sh:36` | A8：首部署註解寫 ADMIN_TOKEN 與 secrets.required 矛盾 | 已清償 2026-11-06——兩處改成對 secret 名（連同 A9 code comments） |
+
+### 登錄待排程（逐卡）
+
+| # | 分類 | 嚴重度 | 位置 | 問題 | 處置 |
+|---|---|---|---|---|---|
+| N10 | HARDEN | Medium | `src/routes/api.ts:364` 等 | M-2：匿名公開端點無限流（GET /api/status 全表 SELECT 可燒請求數＋D1 rows_read） | 下 cycle 前修；輕量 best-effort limiter（勿宣稱嚴格配額，SEC §2 陷阱 3） |
+| N11 | TECH_DEBT | Low | `src/routes/admin.ts:21`＋`src/lib/bindings.ts:11` | A9：過時 ADMIN_TOKEN 註解 | 下次路過順手改 |
+| N12 | HARDEN | Low | `src/routes/admin.ts:725` | L-1：admin 建專案 token 只驗長度（可自貼低熵） | 改強制 CSPRNG 產生或驗 hex 熵 |
+| N13 | HARDEN | Low | `src/views/layout.ts:19` | L-2：CDN script 無 SRI | 加 integrity 雜湊 |
+| N14 | DEP-HEALTH P2 | Medium | `package.json` | major 落後：typescript 7.0.2／msw 3.0.4／@msw/cloudflare 0.2.0 | [NEVER] 本批動；逐卡升級（工具鏈配對驗證） |
+| N15 | PRUNE | Low | `src/client_example.py` | B5：唯一用法文件化在 client-guide.md | defer-with-trigger：client-guide Python 段確認覆蓋後刪＋修 development.md 指向 |
+| N16 | PRUNE | Low | `docs/log/`（14 檔） | B4：session 歷史 log | defer-with-trigger：下次 docs 瘦身輪集中歸檔 |
+
+### 本輪已清（PRUNE safe-to-prune，Phase B 執行）
+
+- `docs/0911-01-CF-api.md`（未採用之 API 研究孤兒）、`docs/99-llm-task-web-todo.md`（無關個人 todo）→ 刪（git 歷史可回溯）。
+- `docs/00-plan.md`、`10-01-plan.md`、`10-02-code.md`、`10-03-client-example.md`、`test-results.md`、`admin-settings-ui-summary.md` → 移 `docs/plans/`（歷史輪產物，10-03 tombstone 範式）。
+
+### 複本盤點新增確認非債項（避免重複調查）
+
+- CSRF 全覆蓋（admin XHR-marker＋API 全 Bearer 非 ambient）；CSPRNG 全覆蓋（token 24B/secret 32B/UUID，Math.random 零命中）；SQL 全靜態＋bind＋LIKE escape；公開面 token/account_id 原始碼級剝除；`/api/pulse` 猜測面 48-hex 不可暴力（併入 N2 註記）。證據：sec-review agent 2026-11-06 逐項 cite。
+- D1 schema 無 legacy 殘留（db.sql 全表有對應讀寫）；SLACK_* legacy env fallback 已根除。
+- 11 §3 多租戶自查（單操作者系統）：§1.1 project_id 隔離欄位✓（tenant 類比）／§1.2 單一共享部署已標明（01 §9）✓／§1.3 配置走 D1 settings（無 if(customer) hardcode，grep 零命中）✓／§1.4 token→project_id 每請求衍生✓／§1.5 KV/R2 N/A（無 binding）／§1.6 無自助 provisioning（封閉註冊）✓——六項 PASS/N-A，無 GAP。
+
+### Statistics
+
+總 25 項：Critical 0／High 6／Medium 7／Low 12；本輪修 9（N1-N9）＋ PRUNE 檔案群；逐卡 7（N10-N16）。舊債 #27/#28 仍待排程（不變）。
+
 ## 複本盤點確認非債項（避免重複調查）
 
 - `logs` 表增長：已有 7 天保留清除（`src/cron.ts` `DELETE FROM logs WHERE created_at < ?`）+ `idx_logs_check_id` 索引（`src/db.sql`）。
