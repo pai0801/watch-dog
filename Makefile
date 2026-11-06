@@ -26,6 +26,7 @@ PY ?= $(shell bash scripts/pick-python.sh)
 ci: lint test
 	$(PY) scripts/check-manifest-gitignore.py
 	$(PY) scripts/check-secrets-coverage.py
+	bash scripts/ship-check.sh
 	@echo "CI passed ✅"
 
 smoke:
