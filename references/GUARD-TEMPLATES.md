@@ -216,6 +216,9 @@ it('D20: REFLECT.md exists for the cycle with R1–R5 answered', () => {
   // 每個 session/cycle [MUST] 有 REFLECT.md，含 R1([MUST] 遵守) / R2([NEVER] 違反) /
   // R3 / R4 / R5(經驗記錄) 各段非空，且無裸 "N/A" 逃避。
   // 觸發點（end-of-session / pre-commit / post-task）未產 REFLECT → fail。
+  // Freshness（2026-09-11 mothership 實證）：最新日期段落落後 HEAD commit > 7 天 → fail。
+  // 取最大日期前 [MUST] 排除 > HEAD 的未來日期（retro deadline 撐出負 lag 假綠）；
+  // 全部日期都在未來 → fail-closed。
 });
 ```
 
@@ -519,4 +522,20 @@ test("D39: noUnusedParameters enabled", () => {
   const raw = readFileSync("tsconfig.json", "utf8");
   expect(/"noUnusedParameters"\s*:\s*true/.test(raw)).toBe(true);
 });
+```
+
+---
+
+### D17 — Fix→Lock 標籤範例（04 §4a1）
+
+CHANGELOG lock-tag 撰寫範例（每條 `### Fixed` bullet 與 `### Human Queue` 中標記 `(resolved)` 的 bullet，結尾 [MUST] 攜帶 `(locked: D##)` 或 `(human: <理由>)`）：
+
+```markdown
+### Fixed
+- `src/x.astro`: ogImageUrl 修正為 /og/mbti/${id}.png。 (locked: D14)
+
+### Human Queue
+- HQ-002 (resolved): 移除 as Record<string, any>。 (locked: D15)
+- HQ-003 (resolved): 移除 dead ENGINEERING_GUIDE.md 引用。 (locked: D16)
+- HQ-001 (carry): stale worktree 待清理。   # carry/open 項目非 fix，不需 tag
 ```

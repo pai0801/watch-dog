@@ -212,6 +212,7 @@ merge 到 main 前 [MUST] 跑 ship-check，三項全過才能 push：
 - [MUST] **project-status emit**：非 trivial（>1 檔或 >10 行或碰 critical-path）變更 / hardening / health 變色，merge 前 [MUST] 依 `rules/PROJECT-STATUS.md` 用 **peter-brain `ingest_doc`**（`source_type="project-status"`，可變狀態走 upsert 庫、非 dev-brain 的 append lessons 庫）emit 一筆 status record，讓任何 session 動手前能跑 `project-status.sh <本專案>` 拉到最新 intent。trivial 修補免 emit（每日 digest 帶過）。
 
 > 由 **D29 guard** 驗證：ship-check step [MUST] 接入 pre-push hook / CI（assert config 存在，見 04 §0 pre-push gatekeeper 模式）。
+> release readiness 完整閘門另見 **07 Phase F**（portability §A–§E + secret §F–§J，`~/Code/rules/09-PROJECT-PORTABILITY.md` / `~/Code/rules/10-SECRETS-CONTRACT.md`）。
 > ship-check 未過 → [NEVER] push 到 main。
 
 ---

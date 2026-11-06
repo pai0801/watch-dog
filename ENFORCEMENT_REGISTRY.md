@@ -142,7 +142,6 @@
 | §5.5 防禦模式共享 | human | `[HUMAN]` (putkm) | API 呼叫無法靜態驗 |
 | §6 STOP 條件 | human | `[HUMAN]` | 判斷 |
 | §7 最終檢查清單 | guard | D18 (meta, item 10) | 10 項含 D17 |
-| §8.i Budget 追蹤表 | guard | D6/D7 budgets | 預算只減不增 |
 | §8.5 Meta & Artifact Guards | guard/artifact | D16,D18,D19,D20,D21,D34 | meta + artifact + doc-drift + anti-phantom guards 區塊 |
 | §8.5 D16 現況文檔 code-path drift | guard | **D16** | 全文檔範圍路徑存在（升級） |
 | §8.5 D18 Registry 完整性 meta-guard | guard (meta) | **D18** | 本登記表覆蓋驗證 |
@@ -151,6 +150,7 @@
 | §8.5 D21 THINK block artifact guard | artifact | **D21** | 非平凡變更 THINK |
 | §8.5 D34 Anti-Phantom Enforcement Audit | guard (meta) | **D34** | guard existence/collision/wiring 四驗 |
 | §8.5 D38 Non-vacuous guard proof | guard (meta) | **D38** | guard test [MUST] NON-VACUOUS + NEGATIVE marker(證非 vacuous) |
+| §8.5 D37 Volatile-number SSoT | guard | **D37** | 揮發性數值 SSoT(static drift detector;模板 references/GUARD-TEMPLATES.md §D37) |
 | §8.6 D25 R2.get null-check | guard | **D25** | 01 §15 gap guard |
 | §8.7 PM/Doc Artifact Guards（D26–D33） | artifact/guard | D26–D33 | 整合 PM skill 區塊 |
 | §8.7 D26 Documentation coverage | artifact | **D26** | /documentation/ 核心集 |
@@ -213,7 +213,10 @@
 
 | Phase | Category | Enforcement | 說明 |
 |---|---|---|---|
+| §1.5 框架更新感知(FRAMEWORK-SYNC) | artifact | sync-framework.sh dry-run 對帳 + CHANGELOG 記同步紀錄 | 每 cycle Phase A 前對帳 rules repo 異動;merge-sync + 專案特有調整 |
 | Phase A 記錄現狀 | artifact | 03 的 D26/D27/D16 | 執行 03,繼承其 enforcement |
+| Phase A/B 依賴健康(DEP-HEALTH) | artifact | 分級表匯入 TODO-REVIEW + P0 修補後重跑驗證四重奏 | 掃描→分級(P0/P1/P2)→修補;方法論 `references/DEPENDENCY-HEALTH.md`(跨棧共享,root↔stack parity 鎖定) |
+| Phase A 資安檢查(SEC-REVIEW) | artifact | 分級表匯入 TODO-REVIEW + High 以上修補帶測試鎖定 | 限流/session/CSRF/headers/陷阱庫逐項 PASS/GAP;方法論 `references/SECURITY-REVIEW.md`;審計 agent ≥ opus |
 | Phase B 完善程式碼 | artifact | 02 的 D21/D33 + 05 §3.5 deslop | 執行 02/05,繼承 |
 | Phase C 加固 | guard | 04 的 D1–D37 + Fix→Lock(D17) | 執行 04,繼承 |
 | Phase D 驗收+文檔收斂 | guard + artifact | 驗證四重奏 + **D29**(ship-check)+ **D35**(deployment)+ **D36**(README parity) | build/lint/test gates |

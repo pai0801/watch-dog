@@ -38,6 +38,7 @@
 - [MUST] **Schema 記錄** — 記錄 D1 table schemas（Drizzle）、KV key patterns、R2 bucket organization
 - [MUST] 標記同步/非同步操作及緩存策略實際實現
 - [MUST] **信任邊界 + authz 流捕獲** — 記錄 trust boundaries（service-role vs client）與 load-bearing authz flow（每個受保護步驟的 claim/role/scope + resource + 預期 deny case），饋入 `/documentation/flows.md` 與 `/documentation/permissions.md`（見 `references/DOCUMENTATION-SET.md`，D26）
+- [MUST] **archify 系統圖盤點（12 §2.1）** — 盤點 `docs/archify/*.json`（spec = SSoT，合約 `~/Code/rules/12-ARCHIFY-DIAGRAMS.md`）：有系統圖的 repo，對照本 Phase 快照逐面檢查圖是否漏了新元件／新邊界／新資料流，漏項產出 MISSING_DOC finding 進 TODO-REVIEW.md；無 `docs/archify/` 的 repo 標 N/A（12 號為條件採用）
 
 ---
 
@@ -47,6 +48,8 @@
 - [MUST] **API 端點清點** — 列出所有路由，驗證 auth/tenant isolation/PROD guard（method、path、auth、status）
 - [MUST] **測試覆蓋評估** — 統計測試檔案及數量、識別未測試模組、驗證架構守護完整性
 - 驗證方法：Grep 查違規、Glob 驗檔案存在、查 import 路徑規範、查測試覆蓋率
+- [MUST] **archify 圖防漂檢查（12 §3.2）** — 有 `docs/archify/` 的 repo [MUST] 跑 `git diff --name-only <last_verified_head>..HEAD -- <架構面路徑 patterns>`（例：`drizzle/ src/lib/db/ src/middleware* src/routes/ src/pages/api/ wrangler.*`，依 repo 佈局調整，見 12 §3.2）；輸出非空 → 圖過期 → 依 12 §3.1 二選一（同窗口更新 spec → validate → deliver → docs-hub sync，或 TODO.md 記債下輪清償），[NEVER] 靜默放過；finding 進 TODO-REVIEW.md
+- [MUST] **docs-hub 手冊頁防漂檢查（08 §6.1）** — 被 docs-hub 引用的 repo（`~/Code/docs-hub/src/content/docs/` 下有 `source_repo: <本 repo>` 的手冊頁）[MUST] 跑 `bash ~/Code/docs-hub/scripts/check-stale.sh --repo <本 repo>`（exit 1 = 本 repo 在戳記後的變更動到了引用面）；STALE → 依 08 §6.1 二選一（同窗口重驗頁面內容＋推 `last_verified_head`，或 TODO-REVIEW.md 記債下輪清償），[NEVER] 靜默放過、[NEVER] 不重驗內容只推戳記；無引用頁的 repo 標 N/A（08 號為條件採用）
 
 ---
 
@@ -169,6 +172,8 @@ row schema：`use-case → rule → expected(含 deny case) → evidence(doc+cod
 - [ ] [MUST] `/documentation/deployment.md` 就位且含 7 必填 section（D35）
 - [ ] [MUST] `/documentation/tests.md` 含 3 分離 section + 每條 rule 帶 status（D28）
 - [ ] [MUST] Phase 3 parity check 完成，每條 documented rule 有 code cite 或 finding（D27）
+- [ ] [MUST] archify 防漂檢查完成（有 `docs/archify/` 的 repo：12 §3.2 diff 為空或已依 §3.1 處理；無圖 repo 標 N/A）
+- [ ] [MUST] docs-hub 手冊頁防漂檢查完成（被引用 repo：check:stale --repo 無 stale 或已依 08 §6.1 處理；無引用頁 repo 標 N/A）
 - [ ] [MUST] TODO-REVIEW.md 已產出（依 `references/TODO-REVIEW-TEMPLATE.md`）
 - [ ] [MUST] 相關文檔已更新
 - [ ] [MUST] 加固建議已饋入 04-HARDENING_PROTOCOL.md

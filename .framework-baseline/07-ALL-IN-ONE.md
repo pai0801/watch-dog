@@ -30,8 +30,21 @@
 - `CHANGELOG.md` 今日 cycle（含 Fix→Lock tag，見 04 §4.a1）
 - 加固後的原始碼（D1–D25 全 PASS、ESLint/Vitest/Build 全綠）
 - `putkm` 經驗記錄（04 §5.5 / 02 §5）
+- **依賴健康分級表**（`references/DEPENDENCY-HEALTH.md` §1）：direct 安全通告已修補或逐條列理由；major 落後有逐卡計畫
+- **資安面分級表**（`references/SECURITY-REVIEW.md` §1）：限流/重試/session/CSRF/headers 逐項 PASS/GAP 附證據；High 以上已匯入 Phase B 或列卡
 - **ops manual（08，Phase E，conditional）**：`docs-hub` 人類操作/部署/維運手冊頁（走 `08-OPS-MANUAL-FRAMEWORK.md` §3 原型 + §4 frontmatter；無 ops impact 則註記跳過）
 - **manifest + portability-check（09，Phase F）**：`.portability.toml`（五段完整）+ portability guard 三項（secret-not-in-vars / raw-SQL / manifest 存在性）PASS + fresh-clone smoke 過（走 `09-PROJECT-PORTABILITY.md` §1.1/§5，模板 `references/PORTABILITY-GUARDS.md`）；**若用 secret：同 Phase F 跑 10 §F–§J（見 Phase F 步驟 5）**
+
+---
+
+## 1.5 — [MUST] 框架更新感知（FRAMEWORK-SYNC，Phase A 前必跑）
+
+> 本地 `01-07`＋`references/` 是 rules repo（`~/Code/rules/cloudflare/`）的拷貝，**會過時**。每個 cycle 開跑前 [MUST] 對帳一次——[NEVER] 拿舊規範跑新 cycle。
+
+- [MUST] **對帳**：跑 `~/Code/rules/scripts/sync-framework.sh "$PWD"`（dry-run）——報告顯示 rules 有更新 → 進下一步；無變動 → 註記「FRAMEWORK-SYNC：無更新」直接進 Phase A。rules repo 非 sibling（不存在）→ 註記跳過（本地拷貝自包含，仍可執行）。
+- [MUST] **看懂異動再同步**：先 `git -C ~/Code/rules log` / `git -C ~/Code/rules diff` 讀本次異動的框架檔**改了什麼、為什麼**，再 `--apply`（3-way merge，保留本地調整）；[NEVER] 盲 cp 覆蓋本地檔。
+- [MUST] **專案特有調整**：合併後逐檔讀結果，`<<<<<<<` 衝突段逐一裁決——框架 `[MUST]`/`[NEVER]` 優先、專案既有規則保留（融合規則＝rules `CLAUDE.md` 採用協議 Step 3）；框架**新增**要求（新 reference 檔、新 Phase 步驟、新 guard）本 cycle [MUST] 補接，登錄 TODO-REVIEW。
+- [MUST] 把「本次吸納的框架變更＋專案調整決定」記入 CHANGELOG（下次對帳的基準點，可追溯）。
 
 ---
 
@@ -45,7 +58,10 @@
 - [MUST] **模式覆蓋 + intent-vs-implemented parity**（03 §4）：ESLint/guard 覆蓋缺口 + **D27 parity check**（每條 documented rule 有 code cite 或 finding）
 - [MUST] **產出 `/documentation/` 核心集 5 份**（03 §5 / D26）：architecture / flows / permissions / variables / tests（後者由 derive-tests 產出，D28）
 - [MUST] 產出 `TODO-REVIEW.md`，問題分 BUG / TECH_DEBT / MISSING_TEST / MISSING_DOC / HARDEN，分 Critical/High/Medium
+- [MUST] **findings 正規化**：多掃描源（03 §3/§4、D27、PRUNE）findings 先彙成 JSONL 餵 `~/Code/rules/scripts/reduce-findings.py`（file+rule+line±10 去重分組、confirmed_by 一致性信號、空輸入→空表）產出分組表，agent 只對分組結果做 BUG/TECH_DEBT/... 分類裁決——[NEVER] 手抄合併近重複 findings。
 - [MUST] **剪枝掃描（PRUNE）**：每個 cycle 掃「retired-but-present」表面——dead routes / env / modules / 測試、reverted features、guard 重複、舊資料的 stale config；每項標 **safe-to-prune** vs **defer-with-trigger**（附觸發條件，如「DROP after all cards seeded」）。safe-to-prune 走 05 §3.5 Pass 1 連同其測試一起刪；defer 項登錄 TODO-REVIEW。（getkm 7ef20e642174）
+- [MUST] **依賴健康掃描（DEP-HEALTH）**：跑 `npm outdated` + `npm audit`（方法論 `references/DEPENDENCY-HEALTH.md` §1）產**分級表**——P0 direct 安全通告（本 cycle [MUST] 匯入 Phase B 修補）/ P1 semver 內收斂 / P2 major 規劃（[NEVER] 本批動，逐卡登錄 TODO-REVIEW）
+- [MUST] **資安檢查（SEC-REVIEW）**：跑 `references/SECURITY-REVIEW.md` §1 五項（限流與重試覆蓋／session／CSRF 與匿名面／security headers／測試鎖定）——每項 PASS/GAP 附證據；library 內建防線 [MUST] 實證 enabled（[NEVER] 信 default，§2 陷阱 1）；執行 agent ≥ opus；High 以上匯入 Phase B 修補
 
 [MUST] 把 TODO-REVIEW 的 MISSING_DOC + TECH_DEBT 分支匯入 Phase B/C 的待辦清單。
 
@@ -72,6 +88,7 @@
 | i18n 完善 | 硬編碼字串改 `t('key')`、locale key 補齊（01 §7） |
 | 缺測補測 | 為 MISSING_TEST 模式補 Vitest guard（含 WRONG/RIGHT，04 §8 模板） |
 | 清理型 TECH_DEBT（deslop） | [MUST] 走 05 §3.5：smell 分類 → Pass0 鎖行為 → Pass1 死碼 → Pass2 重複 → Pass3 命名/錯誤處理 → Pass4 補測；每 pass 重跑 §4 驗證子集；[NEVER] 借清理新增依賴或抽象 |
+| 安全修補批次（依賴升級） | [MUST] 走 `references/DEPENDENCY-HEALTH.md` §2：pin 套件改版號＋caret 套件 floor 上調＋`npm audit fix`（非 force）收 transitive；[NEVER] 混 major 躍遷、[NEVER] `--force`；升級後重跑 §5.1 驗證四重奏 |
 | 小幅重構 | [NEVER] 越界；爆破半徑 > 10 檔 → [MUST] STOP（04 §6） |
 
 [MUST] 每完成一項即更新 TODO-REVIEW 狀態。[NEVER] 新增裸 TODO/FIXME 掩蓋未完工作（02 §5）。
@@ -172,6 +189,8 @@ npm run build             # [MUST] success
 ## 6 — [MUST] 執行順序（嚴格 pipeline）
 
 ```
+FRAMEWORK-SYNC (§1.5 對帳 rules repo → merge-sync + 專案調整)
+   ▼
 Phase A (03 記錄現狀)  ──TODO-REVIEW──┐
    ▼                                  │
 Phase B (02 完善程式碼+註解+補測) ◄────┘
@@ -210,6 +229,7 @@ Phase F (09 portability + 10 secret gate → manifest/guard/smoke/§F–§J，�
 
 [MUST] 全部 ✅ 才能輸出 ALL-IN-ONE COMPLETE：
 
+- [ ] **FRAMEWORK-SYNC**：開跑前已對帳 rules repo（§1.5）；有更新 → 已 sync＋裁決＋記 CHANGELOG；無更新 → 已註記
 - [ ] D1–D25 防禦掃描全 PASS
 - [ ] `tsc`/`lint`/`test`/`build` 全綠，測試數量 ≥ Phase A 之前
 - [ ] D17/D18/D19/D20/D21 guard 全 PASS
@@ -225,6 +245,8 @@ Phase F (09 portability + 10 secret gate → manifest/guard/smoke/§F–§J，�
 - [ ] **D36** README 通過 6 項 Handover Parity 檢查（含 `Last verified:` + 交接連結）
 - [ ] TODO-REVIEW.md 已產出、已解決項已標記
 - [ ] **PRUNE**：本 cycle 已跑剪枝掃描；safe-to-prune 已清（含其測試），defer 項附觸發條件
+- [ ] **DEP-HEALTH**：依賴健康掃描已跑；direct 安全通告已修補或逐條列理由；major 落後已逐卡登錄（`references/DEPENDENCY-HEALTH.md`）
+- [ ] **SEC-REVIEW**：資安檢查五項已跑（`references/SECURITY-REVIEW.md` §1）；High 以上已修補或逐卡；結論以 guard 測試鎖定
 - [ ] CHANGELOG 今日 cycle 完整，每條 fix 有 lock tag
 - [ ] `README.md` + `/documentation/` + `docs/ARCHITECTURE.md` + `deployment.md` 已更新且路徑引用存在（D16）
 - [ ] `01-CLAUDE.md` 準確性通過（禁令/路徑/版本）

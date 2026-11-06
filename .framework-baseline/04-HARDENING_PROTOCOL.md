@@ -206,16 +206,7 @@ pre-commit / CI 執行。未通過 D17 → Phase 2 [MUST] 回到 Phase 1 補 gua
 
 > **已知失效模式**：D17 只驗「fix bullet 結尾有 lock tag 且 tag 指向存在的 guard」——(a) **tag 與 fix 不對應**（貼錯 D##，只要該 guard 存在就 PASS）抓不到，需 reviewer 人工判讀；(b) `(human: ...)` 豁免的「理由具體性」無法靜態驗，可被濫用為跳過 guard 的後門。緩解：(a) 由 03 審計抽查 tag-fix 對應；(b) `(human:)` 比例異常高時 06-REFLECT [MUST] 列為審查重點。
 
-範例：
-```markdown
-### Fixed
-- `src/x.astro`: ogImageUrl 修正為 /og/mbti/${id}.png。 (locked: D14)
-
-### Human Queue
-- HQ-002 (resolved): 移除 as Record<string, any>。 (locked: D15)
-- HQ-003 (resolved): 移除 dead ENGINEERING_GUIDE.md 引用。 (locked: D16)
-- HQ-001 (carry): stale worktree 待清理。   # carry/open 項目非 fix，不需 tag
-```
+範例：guard 模板見 `references/GUARD-TEMPLATES.md §D17`（lock-tag 範例）。
 
 ### b) 更新規則：
 
@@ -374,7 +365,7 @@ putkm(
 
 ### D20 — REFLECT artifact guard（06-REFLECT §3/§4/§5）
 
-[MUST] 每個 session/cycle 都 [MUST] 產出 REFLECT.md，含 R1（[MUST] 遵守）至 R5（經驗記錄）各段非空，[NEVER] 以裸 "N/A" 逃避。
+[MUST] 每個 session/cycle 都 [MUST] 產出 REFLECT.md，含 R1（[MUST] 遵守）至 R5（經驗記錄）各段非空，[NEVER] 以裸 "N/A" 逃避。**Freshness（2026-09-11 mothership 實證）**：最新日期段落落後 HEAD commit > 7 天 → fail。取最大日期前 [MUST] 排除 > HEAD 的未來日期（retro deadline 撐出負 lag 假綠）；全部日期都在未來 → fail-closed。
 
 > 完整 guard 測試模板見 `references/GUARD-TEMPLATES.md §D20`.
 
@@ -578,7 +569,7 @@ Validator：BUILD-PLAN / FIX-LOG 對 tier = major 變更引用 user-story + ≥1
 
 ## Guard Index（D1–D39）— 全 guard 速查
 
-> `ENFORCEMENT_REGISTRY.md` 的每個 D## [MUST] 出現於本表。下游 instantiate 於 `workers/tests/guards.test.ts`。
+> `ENFORCEMENT_REGISTRY.md` 的每個 D## [MUST] 出現於本表。下游 instantiate 於 `workers/tests/guards.test.ts`。Portability/secret 跨棧 guard（09 §A–§E / 10 §F–§J）由消費者於 Phase F instantiate,模板見 `references/PORTABILITY-GUARDS.md`（不在本表 D## 內;登記於 registry 07 section）。
 
 | Guard | 用途 |
 |---|---|
