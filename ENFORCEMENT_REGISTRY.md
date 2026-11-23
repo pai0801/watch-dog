@@ -91,7 +91,7 @@
 | §2.1 user-story + acceptance（D33） | artifact | **D33** | tier=major（§1.5）先寫 story + acceptance |
 | §2.2 /documentation/ 為規劃輸入 | artifact | D26 (documentation set) | 規劃讀 documentation 邊界 |
 | §2.3 模組形狀設計檢查（14 號檔接線） | artifact + human | BUILD-PLAN 註記 + `[HUMAN]`（複本盤點） | 對照 `~/Code/rules/14-DESIGN-PRINCIPLES.md`（§0 兩問＋§2 四條）；死參數/分層可機械化部分接 04 guard |
-| §3 執行階段 | artifact + human | D18 (meta) | agent team 協調為 human |
+| §3 執行階段 | artifact + human | D18 (meta) | agent team 協調為 human；分工政策 SSoT = `~/Code/rules/19-AGENT-DISPATCH.md`（引用，不複製數值） |
 | §3.1 hand-trace test assertion | human | `[HUMAN]` | dispatch 前手動追蹤 test 自洽；reviewer APPROVED 非驗證 |
 | §3.2 Escalation Gate | human | `[HUMAN]` | 升級前先查框架；已規定範式套用、不重開多選題；process violation 記 dev-brain；D18 登記 human |
 | §4 驗證階段 | guard | build/lint/test gates（即 Phase 2 Step 1–4） | 驗證四重奏本身是 enforcement |

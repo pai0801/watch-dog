@@ -93,25 +93,15 @@ trivial 豁免（見 §1.5）。強制類別：artifact（BUILD-PLAN 欄位）+ 
 
 ## 3 — 執行階段（Agent Teams）
 
-三個角色 [NEVER] 兼任：
+> **分工 SSoT**：`~/Code/rules/19-AGENT-DISPATCH.md`（角色分離、模型等級下限、flash 機械派工軌、旗艦保留域）。本節 [NEVER] 複製其數值或派工流程（19 §0 判準），只定義建造流程對執行的**不變量**。
 
-| 角色 | 職責 |
-|---|---|
-| **Executor** | 按批准計畫寫程式碼，[MUST] 不越界，遇架構問題 [MUST] STOP |
-| **Reviewer** | 審查 type safety、資料隔離、i18n、邊界案例，可發出 STOP |
-| **Hardener** | ESLint、Vitest 測試、邊界案例、預算影響、安全漏洞檢查 |
-
-**執行規則：**
-- Executor [MUST] 嚴格按規劃執行，完成後標記待審核
-- Reviewer [MUST] 驗證 type safety + tenant isolation + i18n + 邊界案例
-- Hardener [MUST] 確保測試覆蓋率 + ESLint 零新增 error + 安全檢查
-
-**[MUST] Agent 品質要求：**
-- [MUST] 調用 agent 時匹配任務複雜度與模型等級（架構設計 / 安全審計 ≥ opus，標準實作 ≥ sonnet，快速查找可用 haiku）
-- [MUST] Reviewer 和 Hardener 角色 [NEVER] 使用低於 sonnet 等級的模型
-- [MUST] 優先使用專門化 agent type（如 code-reviewer、security-reviewer），[NEVER] 在專門化 agent 可用時降級為通用 agent
-- [NEVER] 以低品質 agent 執行架構決策、安全審計、或程式碼審查
-- [MUST] agent prompt 必須包含充足上下文（相關規則、檔案路徑、驗收標準），[NEVER] 發送空泛或模糊的指令
+**建造流程不變量：**
+- [MUST] 寫碼者與驗證者不同 context（獨立 agent 或分離 pass 皆可），[NEVER] 同 context 自評（19 §1.1）
+- [MUST] 模型等級與 agent type 依 19 §2 下限表＋§1.3 專門化優先派工——Reviewer/Hardener 審 type safety、資料隔離、i18n、邊界案例、測試覆蓋、安全，等級下限隨 19
+- [MUST] tier=standard+ 且機械型任務（批量轉換/格式掃描/單檔小修/結構化抽取）→ 走 19 §3 flash 派工軌（旗艦分解五件套）；探索、跨檔重構、商業判斷、根因分析 → 旗艦保留域（19 §2.3）
+- [MUST] 派工單自足（19 §1.4 五件套：目標｜範圍｜驗收條件｜黃金範例｜禁止事項），[NEVER] 空泛指令
+- Executor 遇架構問題 [MUST] STOP（不越權即改）
+- trivial tier（§1.5）：單 session 直接執行，本節僅 §3.1 適用
 
 ### 3.1 — [MUST] Dispatch 前 hand-trace test assertion（防 plan 內含缺陷）
 
@@ -210,6 +200,7 @@ merge 到 main 前 [MUST] 跑 ship-check，三項全過才能 push：
 - [MUST] **guard currency**：部署/CI 模式變更時（如 auto-deploy→手動、加減 ship.sh），[MUST] 審計所有 encode 舊模型的 guard/workflow/訊息——過時 fail 訊息比沒 guard 更危險（會誤導）。源於 direct-push-guard 在部署模式變更後訊息過時的教訓（getkm 3a00df4edea8）。
 - [MUST] **gate read-only**：pre-push/CI gate [NEVER] mutate tracked file（如 `detect-secrets scan --baseline` 原地重寫 `generated_at` → auto-commit churn → local/remote diverge）；只做 read-only 檢查（getkm c0e358167156）。
 - [MUST] **project-status emit**：非 trivial（>1 檔或 >10 行或碰 critical-path）變更 / hardening / health 變色，merge 前 [MUST] 依 `rules/PROJECT-STATUS.md` 用 **peter-brain `ingest_doc`**（`source_type="project-status"`，可變狀態走 upsert 庫、非 dev-brain 的 append lessons 庫）emit 一筆 status record，讓任何 session 動手前能跑 `project-status.sh <本專案>` 拉到最新 intent。trivial 修補免 emit（每日 digest 帶過）。
+- [MUST] **LLM code review gate（ocr）**：pre-push 掛 `scripts/ocr-gate.sh`（模板真源 `~/Code/rules/references/ocr-gate.sh`；規格與安裝五步見 `~/Code/rules/references/14-ocr-code-review-gate.md`）——審本次推送 commits，blocking severity（預設 high,medium）擋 push；逾時/斷線 fail-open＋resume 斷點續跑＋同 diff 快取戳記。純文件 repo 可不裝（於 01 註記）。
 
 > 由 **D29 guard** 驗證：ship-check step [MUST] 接入 pre-push hook / CI（assert config 存在，見 04 §0 pre-push gatekeeper 模式）。
 > release readiness 完整閘門另見 **07 Phase F**（portability §A–§E + secret §F–§J，`~/Code/rules/09-PROJECT-PORTABILITY.md` / `~/Code/rules/10-SECRETS-CONTRACT.md`）。

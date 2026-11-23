@@ -96,4 +96,6 @@ You have access to the `dev-brain` MCP server — a shared knowledge base of dev
 
 3. **Tags should be lowercase and specific:** e.g., `["bugfix", "python", "flask"]`, `["perf", "sql", "postgresql"]`, `["refactor", "react"]`
 
+4. **Language: 中文（語言一致性鐵則）.** problem/solution/context 與 getkm 的 query 一律用**中文**（技術名詞保留英文原文）。實測（2026-11-22）：本庫 embedding（bge-small-en-v1.5）下，查詢與文件同語言相似度 0.81-0.87，跨語言查詢穩定最差（-0.03~-0.12）；既有 3,900+ 筆皆為中文，混寫英文會讓新舊記錄互相召回不到。
+
 **When in doubt, record it.** It is better to have too many experiences than to lose institutional knowledge.

@@ -147,7 +147,7 @@ npm run build             # [MUST] success
 
 ### 5.4 — [MUST] Ship-check（D29）
 
-[MUST] 進 main 前跑 ship-check（02 §5.5）：operating-context current / 無 CRITICAL-unverified rule / `/documentation/` set present。未過 → [NEVER] push 到 main。
+[MUST] 進 main 前跑 ship-check（02 §5.5）：operating-context current / 無 CRITICAL-unverified rule / `/documentation/` set present / **LLM code review gate（ocr）**——已裝 `scripts/ocr-gate.sh` 且本次變更經審無 blocking severity（docs-only／ocr 環境缺席由 gate 自身 skip/fail-open 處理並註記）。未過 → [NEVER] push 到 main。
 
 ### 5.3 — [MUST] 經驗記錄
 
